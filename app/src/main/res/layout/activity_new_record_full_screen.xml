@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:background="@color/lsq_color_black"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.tusdk.pulse.filter.FilterDisplayView
+        android:id="@+id/lsq_cameraView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        />
+
+    <ImageView
+        android:visibility="invisible"
+        android:scaleType="fitCenter"
+        android:background="@color/lsq_color_black"
+        android:id="@+id/lsq_camera_view_mask"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
+    <org.lasque.effectcamerademo.views.record.RecordView
+        android:id="@+id/lsq_movie_record_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/log"
+        android:layout_marginTop="40dp"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:gravity="top|left"
+        android:textSize="16sp"
+        android:textColor="@color/lsq_color_red"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
+</RelativeLayout>

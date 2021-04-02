@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context="org.lasque.effectcamerademo.SplashActivity">
+
+    <ImageView
+        android:scaleType="centerCrop"
+        android:src="@drawable/lsq_home_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:layout_alignParentBottom="true"
+        android:gravity="center"
+        android:textColor="@color/lsq_color_gray"
+        android:textStyle="bold"
+        android:textSize="14sp"
+        android:id="@+id/lsq_version_code"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+</RelativeLayout>

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.lasque.effectcamerademo">
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/> <!-- 获取WIFI信息 -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/> <!-- 允许应用程序写数据到外部存储设备（主要是SD卡） -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/> <!-- 在sdcard中创建/删除文件的权限 -->
+    <uses-permission android:name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS"/> <!-- 请求访问使用照相设备 -->
+    <uses-permission android:name="android.permission.CAMERA"/> <!-- 开启闪光灯权限 -->
+    <uses-permission android:name="android.permission.FLASHLIGHT"/> <!-- 访问麦克风 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+
+    <uses-feature android:name="android.hardware.camera"/>
+    <uses-feature android:name="android.hardware.camera.autofocus"/>
+    <uses-feature android:name="android.hardware.camera.flash"/> <!-- 以下为非必要权限 -->
+    <!-- 位置信息 -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/> <!-- 允许访问GPS -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/> <!-- 读取本机信息 -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/> <!-- 读取日志 -->
+    <uses-permission android:name="android.permission.READ_LOGS"/>
+
+    <application
+        android:requestLegacyExternalStorage="true"
+        android:name=".TuApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/logo"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/logo"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.EffectCameraDemo" >
+        <activity
+            android:name=".SplashActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:label="@string/app_name"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="stateHidden|adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".DemoEntryActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="stateHidden|adjustResize"/>
+        <activity android:name=".MovieRecordFullScreenActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            />
+
+    </application>
+
+
+
+</manifest>

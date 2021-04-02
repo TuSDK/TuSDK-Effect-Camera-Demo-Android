@@ -1,0 +1,34 @@
+<resources>
+
+    <!-- Base application theme. -->
+
+    <!-- 全屏 断点续拍 -->
+
+    <!-- camera controll Option for full screen -->
+    <style name="lsq_camera_OptionButton_full_screen">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+    </style>
+
+    <declare-styleable name="TabPagerIndicator">
+        <attr name="default_display_counts" format="integer"></attr>
+        <attr name="normal_text_color" format="color"/>
+        <attr name="high_light_text_color" format="color"/>
+        <attr name="text_size" format="integer"/>
+        <attr name="line_color" format="color"/>
+        <attr name="line_size" format="integer"/>
+        <attr name="line_width" format="dimension"></attr>
+    </declare-styleable>
+    <declare-styleable name="HorizontalProgressBar">
+        <attr name="background_color" format="color"/>
+        <attr name="progressColor" format="color"/>
+        <attr name="defaultHeight" format="dimension"/>
+    </declare-styleable>
+    
+    <declare-styleable name="TuSeekBarPressure">
+    </declare-styleable>
+
+    <declare-styleable name="TuSdkVideoFocusTouchView">
+
+    </declare-styleable>
+</resources>
