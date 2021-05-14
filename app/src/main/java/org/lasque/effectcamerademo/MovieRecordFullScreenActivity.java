@@ -30,6 +30,7 @@ import androidx.fragment.app.FragmentActivity;
 
 import com.tusdk.pulse.Engine;
 import com.tusdk.pulse.filter.FileExporter;
+import com.tusdk.pulse.filter.Filter;
 import com.tusdk.pulse.filter.FilterDisplayView;
 import com.tusdk.pulse.filter.FilterPipe;
 import com.tusdk.pulse.filter.Image;
@@ -106,9 +107,9 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private TuCamera mCamera;
 
-    private ExecutorService mRenderPool = Executors.newSingleThreadExecutor();
+    private ExecutorService mRenderPool = Executors.newWorkStealingPool(1);
 
-    private ExecutorService mRecordPool = Executors.newSingleThreadExecutor();
+    private ExecutorService mRecordPool = Executors.newFixedThreadPool(1);
 
     private OutputSurface mOutputSurface;
 
@@ -314,6 +315,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
     private boolean isNeedCreateTexture = false;
 
     private void onDrawFrame() {
+
         long startTime = System.currentTimeMillis();
 
         //采集到的视频源大小, 未旋转
@@ -388,11 +390,17 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 //                Image in = new Image(testBitmap,System.currentTimeMillis());
 //                Bitmap bitmap = in.toBitmap();
                 double agree = mOrientationListener.getDeviceAngle() + InterfaceOrientation.Portrait.getDegree();
-                if (mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.Reshape)) != null || mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.CosmeticFace)) != null){
-                    in.setMarkSenceEnable(true);
-                } else {
-                    in.setMarkSenceEnable(false);
+
+                boolean enableMarkSence = false;
+                if (mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.Reshape)) != null
+                        || mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.CosmeticFace)) != null){
+
+
+                    enableMarkSence = mRecordView.checkEnableMarkSence();
                 }
+
+                TLog.e("enable check sence %s",enableMarkSence);
+                in.setMarkSenceEnable(enableMarkSence);
                 in.setAgree(agree);
                 frameCount ++;
                 Image out = mFP.process(in);
@@ -400,7 +408,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 long fpProcessDuration = System.currentTimeMillis() - startTime;
                 log.append("FilterPipe 处理时长 : ").append(fpProcessDuration).append(" \n");
                 log.append("degree : ").append(agree).append(" \n");
-                TLog.e("output image %s",out);
+//                TLog.e("output image %s",out);
                 return out;
             }
         });
@@ -411,46 +419,47 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             else mCameraView.updateImage(out,mCurrentPreviewRectF);
             long processDuration = System.currentTimeMillis() - startTime;
             log.append("当前帧渲染总时长 : ").append(processDuration).append("\n");
-//            double fps = 1000.0 / processDuration;
-//            log.append("当前渲染帧率 : ").append(fps).append("\n");
-            double fps = TLog.fps("fps");
-            log.append("当前渲染帧率 : ").append(fps).append("\n");
 
-            mRecordPool.execute(new Runnable() {
-                @Override
-                public void run() {
-                    if (mFileRecorder != null && isRecording){
-                        mCurrentFragmentDuration = System.currentTimeMillis() - mRecordingStart;
-                        mFileRecorder.sendImage(out,mCurrentFragmentDuration);
-                        mCurrentFragmentDuration *= mCurrentStretch;
-                        TLog.e("Duration fragment : %s current : %s",mCurrentFragmentDuration,mCurrentDuration);
-                        float progress = (mCurrentFragmentDuration + mCurrentDuration) / (float) CURRENT_MAX_RECORD_DURATION;
-                        if (progress > 1){
-                            if (!isRecordCompleted){
-                                isRecordCompleted = true;
+            if (mFileRecorder != null && isRecording){
+                mRecordPool.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (mFileRecorder != null && isRecording){
+                            mCurrentFragmentDuration = System.currentTimeMillis() - mRecordingStart;
+                            mFileRecorder.sendImage(out,mCurrentFragmentDuration);
+                            mCurrentFragmentDuration *= mCurrentStretch;
+                            TLog.e("Duration fragment : %s current : %s",mCurrentFragmentDuration,mCurrentDuration);
+                            float progress = (mCurrentFragmentDuration + mCurrentDuration) / (float) CURRENT_MAX_RECORD_DURATION;
+                            if (progress > 1){
+                                if (!isRecordCompleted){
+                                    isRecordCompleted = true;
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            mRecordView.updateMovieRecordState(RecordView.RecordState.RecordCompleted,true);
+
+                                        }
+                                    });
+                                }
+                            } else {
                                 runOnUiThread(new Runnable() {
                                     @Override
                                     public void run() {
-                                        mRecordView.updateMovieRecordState(RecordView.RecordState.RecordCompleted,true);
-
+                                        mRecordView.updateViewOnMovieRecordProgressChanged(progress,mCurrentFragmentDuration);
                                     }
                                 });
+
                             }
-                        } else {
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    mRecordView.updateViewOnMovieRecordProgressChanged(progress,mCurrentFragmentDuration);
-                                }
-                            });
-
+                            TLog.e("end send image");
                         }
-                        TLog.e("end send image");
-                    }
 
-                    out.release();
-                }
-            });
+                        out.release();
+                    }
+                });
+            } else {
+                out.release();
+            }
+
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -581,7 +590,11 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
                         TuSdkSize wrapSize = mRecordView.getWrapSize();
                         mRectSize = TuSdkSize.create(((int) (wrapSize.width * rectF.width())), ((int) (wrapSize.height * rectF.height())));
+
+//                        TuCameraAspectRatio ratio = TuCameraAspectRatio.of(((int) (rectF.width() * 1000)), ((int) (rectF.height() * 1000)));
+//                        mRectRatio = ratio;
                         isNeedCreateTexture = true;
+//                        TLog.e("current rect ratio %s rect %s",ratio,rectF);
                         return isNeedCreateTexture;
                     }
                 });
@@ -847,17 +860,17 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
         mCamera.setFullFrame(false);
 
-        mCamera.setPreviewCallback(new Camera.PreviewCallback() {
-            @Override
-            public void onPreviewFrame(byte[] data, Camera camera) {
-
-                byte[] cloneDate = data.clone();
-
-                // todo
-
-                camera.addCallbackBuffer(data);
-            }
-        });
+//        mCamera.setPreviewCallback(new Camera.PreviewCallback() {
+//            @Override
+//            public void onPreviewFrame(byte[] data, Camera camera) {
+//
+//                byte[] cloneDate = data.clone();
+//
+//                // todo
+//
+//                camera.addCallbackBuffer(data);
+//            }
+//        });
 
 
         if (!mCamera.prepare()) return;
@@ -929,7 +942,9 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
                     canvas.restore();
 
-                    mRecordView.presentPreviewLayout(newb);
+                    data.image = newb;
+
+                    mRecordView.presentPreviewLayout(data);
                 } catch (ExecutionException e) {
                     e.printStackTrace();
                 } catch (InterruptedException e) {

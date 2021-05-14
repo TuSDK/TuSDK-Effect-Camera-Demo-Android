@@ -322,4 +322,10 @@ public class CosmeticPanelController {
         }
     }
 
+    public boolean checkMarkSence(){
+        int cosmeticEnable = mProperty.blushEnable + mProperty.browEnable + mProperty.eyelashEnable + mProperty.eyelineEnable + mProperty.eyeshadowEnable + mProperty.lipEnable + mProperty.facialEnable;
+
+        return cosmeticEnable>0;
+    }
+
 }

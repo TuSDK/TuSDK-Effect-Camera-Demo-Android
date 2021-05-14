@@ -25,6 +25,7 @@ import org.lasque.tusdkpulse.core.struct.TuSdkSize;
 import org.lasque.tusdkpulse.core.struct.ViewSize;
 import org.lasque.tusdkpulse.core.utils.RectHelper;
 import org.lasque.tusdkpulse.core.utils.hardware.CameraConfigs;
+import org.lasque.tusdkpulse.core.utils.image.ImageOrientation;
 import org.lasque.tusdkpulse.core.view.TuSdkRelativeLayout;
 import org.lasque.tusdkpulse.cx.hardware.camera.TuCamera;
 import org.lasque.tusdkpulse.cx.hardware.camera.TuCameraFocus;
@@ -391,7 +392,7 @@ public abstract class TuSdkVideoFocusTouchViewBase extends TuSdkRelativeLayout i
 		PointF point = new PointF();
 		float width = this.getWidth();
 		float height = this.getHeight();
-		if (this.mCamera.getFacing() == CameraConfigs.CameraFacing.Front)
+		if (this.mCamera.getFacing() == CameraConfigs.CameraFacing.Back)
 		{
 			point.x = 1.0f - Math.min(1.0f,lastPoint.x / width);
 			point.y = 1.0f - Math.min(1.0f,lastPoint.y / height);
@@ -401,13 +402,16 @@ public abstract class TuSdkVideoFocusTouchViewBase extends TuSdkRelativeLayout i
 			point.x = Math.max(0.0f,lastPoint.x / width);
 			point.y = Math.max(0.0f,lastPoint.y / height);
 		}
+
+
+
 		/**
 		 *  2020.03.10
 		 *  修复预览比例变更后,测光点,对焦区位置错误的问题
 		 * */
-//		if (mRegionHandler.getRatio() > 0){
-//			point.y -= (mRegionHandler.getCenterRectPercent().bottom - getRegionPercent().bottom);
-//		}
+		if (mRegionHandler.getRatio() > 0){
+			point.y -= (mRegionHandler.getCenterRectPercent().bottom - getRegionPercent().bottom);
+		}
 
 
 		return point;

@@ -12,6 +12,7 @@ import android.graphics.PointF;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
@@ -57,6 +58,7 @@ import org.lasque.effectcamerademo.views.props.model.PropsItemMonster;
 import org.lasque.effectcamerademo.views.props.model.PropsItemSticker;
 import org.lasque.tusdkpulse.core.TuSdk;
 import org.lasque.tusdkpulse.core.TuSdkContext;
+import org.lasque.tusdkpulse.core.TuSdkResult;
 import org.lasque.tusdkpulse.core.seles.SelesParameters;
 import org.lasque.tusdkpulse.core.seles.tusdk.FilterGroup;
 import org.lasque.tusdkpulse.core.seles.tusdk.FilterLocalPackage;
@@ -228,6 +230,8 @@ public class RecordView extends RelativeLayout {
      * 拍照获得的Bitmap
      */
     private Bitmap mCaptureBitmap;
+
+    private TuSdkResult mCurrentResult;
 
     private SharedPreferences mFilterValueMap;
 
@@ -2521,6 +2525,17 @@ public class RecordView extends RelativeLayout {
 
     }
 
+    private void addReshape(){
+        Filter reshapeFilter = new Filter(mFP.getContext(), TusdkReshapeFilter.TYPE_NAME);
+        boolean reshapeRes = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.Reshape),reshapeFilter);
+        mCurrentFilterMap.put(SelesParameters.FilterModel.Reshape,reshapeFilter);
+    }
+
+    private void removeReshape(){
+        mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.Reshape));
+        mCurrentFilterMap.remove(SelesParameters.FilterModel.Reshape);
+    }
+
     private void initPlastic() {
         Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
             @Override
@@ -2533,13 +2548,7 @@ public class RecordView extends RelativeLayout {
                     SelesParameters parameters = new SelesParameters();
                     boolean plasticRes = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.PlasticFace), plasticFilter);
                     mCurrentFilterMap.put(SelesParameters.FilterModel.PlasticFace, plasticFilter);
-
-                    Filter reshapeFilter = new Filter(mFP.getContext(), TusdkReshapeFilter.TYPE_NAME);
-
                     TusdkReshapeFilter.PropertyBuilder reshapeProperty = new TusdkReshapeFilter.PropertyBuilder();
-
-                    boolean reshapeRes = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.Reshape),reshapeFilter);
-                    mCurrentFilterMap.put(SelesParameters.FilterModel.Reshape,reshapeFilter);
 
                     for (String key : mDefaultBeautyPercentParams.keySet()) {
                         float value = mDefaultBeautyPercentParams.get(key);
@@ -2654,8 +2663,6 @@ public class RecordView extends RelativeLayout {
 
                     plasticFilter.setProperty(TusdkFacePlasticFilter.PROP_PARAM,plasticProperty.makeProperty());
 
-                    reshapeFilter.setProperty(TusdkReshapeFilter.PROP_PARAM,reshapeProperty.makeProperty());
-
 
                     parameters.setListener(new SelesParameters.SelesParametersListener() {
                         @Override
@@ -2671,8 +2678,9 @@ public class RecordView extends RelativeLayout {
                         }
                     });
                     mPropertyMap.put(SelesParameters.FilterModel.PlasticFace, plasticProperty);
+                    mPropertyMap.put(SelesParameters.FilterModel.Reshape,reshapeProperty);
                     mPlasticParameter = parameters;
-                    return plasticRes && reshapeRes;
+                    return plasticRes;
                 }
                 return false;
             }
@@ -2770,6 +2778,9 @@ public class RecordView extends RelativeLayout {
     }
 
     private void submitPlastic(double value,String key,TusdkReshapeFilter.PropertyBuilder reshapeProperty){
+
+
+
         switch (key){
             case "eyelidAlpha":
                 reshapeProperty.eyelidOpacity = value;
@@ -2794,7 +2805,17 @@ public class RecordView extends RelativeLayout {
         Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
             @Override
             public Boolean call() throws Exception {
-                boolean res = mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape).setProperty(TusdkReshapeFilter.PROP_PARAM,reshapeProperty.makeProperty());
+                if (mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape) == null){
+                    addReshape();
+                }
+                boolean res = true;
+                if (checkEnableReshape()){
+                    res = mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape).setProperty(TusdkReshapeFilter.PROP_PARAM,reshapeProperty.makeProperty());
+                } else {
+                    removeReshape();
+                }
+
+
                 return res;
             }
         });
@@ -2839,11 +2860,12 @@ public class RecordView extends RelativeLayout {
      *
      * @param bitmap
      */
-    public void presentPreviewLayout(Bitmap bitmap) {
-        if (bitmap != null) {
-            mCaptureBitmap = bitmap;
+    public void presentPreviewLayout(TuSdkResult result) {
+        if (result.image != null) {
+            mCurrentResult = result;
+            mCaptureBitmap = result.image;
             updatePreviewImageLayoutStatus(true);
-            mPreViewImageView.setImageBitmap(bitmap);
+            mPreViewImageView.setImageBitmap(result.image);
             // 暂停相机
             mCamera.pausePreview();
         }
@@ -2854,9 +2876,14 @@ public class RecordView extends RelativeLayout {
      */
     public void saveResource() {
         updatePreviewImageLayoutStatus(false);
-        File flie = AlbumHelper.getAlbumFile();
-        ImageSqlHelper.saveJpgToAblum(mContext, mCaptureBitmap, 80, flie);
-        refreshFile(flie);
+        File file = null;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q){
+            file = AlbumHelper.getAlbumFileAndroidQ();
+        } else {
+            file = AlbumHelper.getAlbumFile();
+        }
+        ImageSqlHelper.saveJpgToAblum(mContext, mCaptureBitmap, 80, file,mCurrentResult.metadata);
+        refreshFile(file);
         destroyBitmap();
         post(new Runnable() {
             @Override
@@ -2865,7 +2892,6 @@ public class RecordView extends RelativeLayout {
             }
         });
 
-//        TuSdk.messageHub().showToast(mContext, R.string.lsq_image_save_ok);
         mCamera.resumePreview();
     }
 
@@ -3660,5 +3686,20 @@ public class RecordView extends RelativeLayout {
 
     public TuSdkSize getWrapSize(){
         return mRegionHandle.getWrapSize();
+    }
+
+    public boolean checkEnableMarkSence(){
+        Filter reshapeFilter = mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape);
+
+        boolean makeSence = reshapeFilter != null;
+
+        makeSence = makeSence || mController.checkMarkSence();
+
+        return makeSence;
+    }
+
+    private boolean checkEnableReshape(){
+        TusdkReshapeFilter.PropertyBuilder builder = (TusdkReshapeFilter.PropertyBuilder) mPropertyMap.get(SelesParameters.FilterModel.Reshape);
+        return builder.eyelidOpacity + builder.eyemazingOpacity + builder.whitenTeethOpacity + builder.removePouchOpacity + builder.removeWrinklesOpacity + builder.eyeDetailOpacity != 0;
     }
 }

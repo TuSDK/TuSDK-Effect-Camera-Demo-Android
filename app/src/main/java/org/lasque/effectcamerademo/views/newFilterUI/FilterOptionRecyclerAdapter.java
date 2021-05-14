@@ -13,6 +13,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.lasque.tusdkpulse.core.TuSdkContext;
+import org.lasque.tusdkpulse.core.seles.tusdk.FilterLocalPackage;
 import org.lasque.tusdkpulse.core.seles.tusdk.FilterOption;
 import org.lasque.tusdkpulse.core.view.TuSdkImageView;
 
@@ -91,6 +92,9 @@ public class FilterOptionRecyclerAdapter extends RecyclerView.Adapter<FilterOpti
         String filterCode = mOptions.get(position).code;
         String imageCode = filterCode.toLowerCase().replaceAll("_", "");
         String filterImageName = getThumbPrefix() + imageCode;
+
+        FilterLocalPackage.shared().loadFilterThumb(filterViewHolder.mItemImage,FilterLocalPackage.shared().option(filterCode));
+
         filterViewHolder.mImageLayout.setVisibility(View.VISIBLE);
 //        if(position == 0){
 //            filterViewHolder.mNoneLayout.setVisibility(View.VISIBLE);
@@ -113,10 +117,10 @@ public class FilterOptionRecyclerAdapter extends RecyclerView.Adapter<FilterOpti
             filterViewHolder.mSelectLayout.setVisibility(View.GONE);
             filterViewHolder.mTitleView.setText(TuSdkContext.getString(getTextPrefix() + filterCode));
         }
-        Bitmap filterImage = TuSdkContext.getRawBitmap(filterImageName);
-        if (filterImage != null) {
-            filterViewHolder.mItemImage.setImageBitmap(filterImage);
-        }
+//        Bitmap filterImage = TuSdkContext.getRawBitmap(filterImageName);
+//        if (filterImage != null) {
+//            filterViewHolder.mItemImage.setImageBitmap(filterImage);
+//        }
         // 反馈点击
         filterViewHolder.itemView.setOnClickListener(new View.OnClickListener() {
             @Override
