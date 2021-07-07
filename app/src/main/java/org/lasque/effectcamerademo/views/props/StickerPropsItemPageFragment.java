@@ -25,6 +25,7 @@ import com.bumptech.glide.Glide;
 import org.lasque.tusdkpulse.core.TuSdkContext;
 import org.lasque.tusdkpulse.core.secret.TuSDKOnlineStickerDownloader;
 import org.lasque.tusdkpulse.core.type.DownloadTaskStatus;
+import org.lasque.tusdkpulse.core.utils.TLog;
 import org.lasque.tusdkpulse.modules.view.widget.sticker.StickerGroup;
 import org.lasque.tusdkpulse.modules.view.widget.sticker.StickerLocalPackage;
 import org.lasque.effectcamerademo.R;
@@ -160,7 +161,9 @@ public class StickerPropsItemPageFragment extends PropsItemPageFragment {
         @Override
         public void onDownloadProgressChanged(long stickerGroupId, float progress, DownloadTaskStatus status) {
 
-            if (status == DownloadTaskStatus.StatusDowned || status == DownloadTaskStatus.StatusDownFailed )
+            TLog.e("current status %s",status);
+
+            if (status == DownloadTaskStatus.StatusDowned)
             {
                 int position = itemPosition(stickerGroupId);
 
@@ -170,6 +173,10 @@ public class StickerPropsItemPageFragment extends PropsItemPageFragment {
 
                 notifyDataSetChanged();
 
+            } else if (status == DownloadTaskStatus.StatusDownFailed){
+                mStickerDownloader.removeStickerGroup(stickerGroupId);
+
+                notifyDataSetChanged();
             }
 
         }

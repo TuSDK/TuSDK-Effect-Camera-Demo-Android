@@ -2,6 +2,7 @@ package org.lasque.effectcamerademo.views.cosmetic;
 
 import android.content.Context;
 
+import com.tusdk.pulse.DispatchQueue;
 import com.tusdk.pulse.filter.Filter;
 import com.tusdk.pulse.filter.FilterPipe;
 import com.tusdk.pulse.filter.filters.TusdkCosmeticFilter;
@@ -20,10 +21,6 @@ import org.lasque.effectcamerademo.views.cosmetic.panel.lipstick.LipstickPanel;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
 
 /**
  * TuSDK
@@ -104,7 +101,7 @@ public class CosmeticPanelController {
 
     private FilterPipe mFilterPipe;
 
-    private ExecutorService mRenderPool;
+    private DispatchQueue mRenderPool;
 
     private TusdkCosmeticFilter.PropertyBuilder mProperty;
 
@@ -114,15 +111,13 @@ public class CosmeticPanelController {
 
     }
 
-    public void initCosmetic(FilterPipe filterPipe, ExecutorService renderPool){
+    public void initCosmetic(FilterPipe filterPipe, DispatchQueue renderPool){
         mFilterPipe = filterPipe;
         mRenderPool = renderPool;
 
-
-
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 mCosmeticFilter = new Filter(mFilterPipe.getContext(),TusdkCosmeticFilter.TYPE_NAME);
                 boolean ret = mFilterPipe.addFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.CosmeticFace),mCosmeticFilter);
                 mProperty = new TusdkCosmeticFilter.PropertyBuilder();
@@ -173,17 +168,8 @@ public class CosmeticPanelController {
 //                    SelesParameters.FilterArg arg = mEffect.getFilterArg(key);
 //                    arg.setMaxValueFactor(mDefaultCosmeticMaxPercentParams.get(key));
 //                }
-                return ret;
             }
         });
-
-        try {
-            res.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
     }
 
     public LipstickPanel getLipstickPanel() {
@@ -305,21 +291,12 @@ public class CosmeticPanelController {
     }
 
     public void updateProperty(){
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 boolean ret = mCosmeticFilter.setProperty(TusdkCosmeticFilter.PROP_PARAM,mProperty.makeProperty());
-                return ret;
             }
         });
-
-        try {
-            res.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
     }
 
     public boolean checkMarkSence(){

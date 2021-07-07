@@ -24,6 +24,7 @@
         android:background="@color/lsq_color_white" />
 
     <RelativeLayout
+        android:id="@+id/lsq_camera_radio_layer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
@@ -235,6 +236,105 @@
             </RadioGroup>
 
         </ScrollView>
+
+    </RelativeLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:layout_marginLeft="@dimen/lsq__space_15"
+        android:layout_marginRight="@dimen/lsq__space_15"
+        android:alpha="0.1"
+        android:background="@color/lsq_color_white" />
+
+    <RelativeLayout
+        android:visibility="gone"
+        android:id="@+id/lsq_simultaneously_layer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="@dimen/lsq__space_15"
+            android:layout_centerVertical="true"
+            android:text="@string/lsq_double_view_more"
+            android:textColor="@color/lsq_alpha_white_66"
+            android:textSize="@dimen/lsq_font_size_24" />
+
+        <TextView
+            android:id="@+id/lsq_view_in_view"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:padding="@dimen/lsq__space_15"
+            android:text="@string/lsq_view_in_view"
+            android:textColor="@color/lsq_color_white"
+            android:textSize="@dimen/lsq_font_size_24" />
+        <TextView
+            android:id="@+id/lsq_top_bottom"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_toLeftOf="@+id/lsq_view_in_view"
+            android:padding="@dimen/lsq__space_15"
+            android:text="@string/lsq_top_bottom"
+            android:textColor="@color/lsq_color_white"
+            android:textSize="@dimen/lsq_font_size_24" />
+
+        <TextView
+            android:id="@+id/lsq_left_right"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_toLeftOf="@+id/lsq_top_bottom"
+            android:padding="@dimen/lsq__space_15"
+            android:text="@string/lsq_left_right"
+            android:textColor="@color/lsq_widget_speedbar_button_bg"
+            android:textSize="@dimen/lsq_font_size_24" />
+
+
+
+    </RelativeLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:layout_marginLeft="@dimen/lsq__space_15"
+        android:layout_marginRight="@dimen/lsq__space_15"
+        android:alpha="0.1"
+        android:background="@color/lsq_color_white" />
+
+    <RelativeLayout
+        android:visibility="visible"
+        android:id="@+id/lsq_mic_layer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="@dimen/lsq__space_15"
+            android:layout_centerVertical="true"
+            android:text="@string/lsq_mic_layer"
+            android:textColor="@color/lsq_alpha_white_66"
+            android:textSize="@dimen/lsq_font_size_24" />
+
+        <TextView
+            android:id="@+id/lsq_mic_close"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:padding="@dimen/lsq__space_15"
+            android:text="@string/lsq_mic_close"
+            android:textColor="@color/lsq_color_white"
+            android:textSize="@dimen/lsq_font_size_24" />
+
+        <TextView
+            android:id="@+id/lsq_mic_open"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_toLeftOf="@+id/lsq_mic_close"
+            android:padding="@dimen/lsq__space_15"
+            android:text="@string/lsq_mic_open"
+            android:textColor="@color/lsq_widget_speedbar_button_bg"
+            android:textSize="@dimen/lsq_font_size_24" />
 
     </RelativeLayout>
 

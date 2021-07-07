@@ -54,6 +54,14 @@
             android:screenOrientation="portrait"
             android:windowSoftInputMode="stateHidden|adjustResize"
             />
+        <activity android:name=".album.AlbumActivity" />
+
+        <activity android:name=".audio.AudioListActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:launchMode="standard"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:theme="@style/Transparent"
+            />
 
     </application>
 

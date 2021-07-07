@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <ImageView
+        android:src="@drawable/music_ic_record1"
+        android:layout_marginLeft="10dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintLeft_toLeftOf="parent"
+        android:id="@+id/lsq_audio_list_state"
+        android:layout_width="80dp"
+        android:layout_height="80dp"/>
+
+    <TextView
+        android:text="白桃气泡水（抒情版）"
+        android:layout_marginStart="2dp"
+        android:textSize="14sp"
+        android:textColor="@color/lsq_color_white"
+        android:layout_marginTop="21dp"
+        app:layout_constraintTop_toTopOf="@id/lsq_audio_list_state"
+        app:layout_constraintLeft_toRightOf="@id/lsq_audio_list_state"
+        android:id="@+id/lsq_audio_list_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+
+    <TextView
+        android:layout_marginTop="4dp"
+        android:text="王俊凯/01:40"
+        android:alpha="0.6"
+        android:textColor="@color/lsq_color_white"
+        android:textSize="11sp"
+        app:layout_constraintTop_toBottomOf="@id/lsq_audio_list_name"
+        app:layout_constraintLeft_toLeftOf="@id/lsq_audio_list_name"
+        android:id="@+id/lsq_audio_item_duration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+
+    <TextView
+        android:background="@drawable/audio_play_background"
+        android:text="试听"
+        android:gravity="center"
+        android:textSize="14sp"
+        android:textColor="@color/lsq_color_white"
+        android:layout_marginEnd="20dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintRight_toRightOf="parent"
+        android:id="@+id/lsq_audio_list_commit"
+        android:layout_width="56dp"
+        android:layout_height="28dp"/>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

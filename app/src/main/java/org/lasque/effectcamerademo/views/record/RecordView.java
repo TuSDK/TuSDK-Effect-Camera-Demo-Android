@@ -18,6 +18,7 @@ import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
@@ -42,6 +43,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager2.widget.ViewPager2;
 
 import com.tusdk.pulse.Config;
+import com.tusdk.pulse.DispatchQueue;
 import com.tusdk.pulse.filter.Filter;
 import com.tusdk.pulse.filter.FilterDisplayView;
 import com.tusdk.pulse.filter.FilterPipe;
@@ -54,6 +56,8 @@ import com.tusdk.pulse.filter.filters.TusdkImageFilter;
 import com.tusdk.pulse.filter.filters.TusdkLiveStickerFilter;
 import com.tusdk.pulse.filter.filters.TusdkReshapeFilter;
 
+import org.lasque.effectcamerademo.MovieRecordFullScreenActivity;
+import org.lasque.effectcamerademo.audio.AudioListActivity;
 import org.lasque.effectcamerademo.views.props.model.PropsItemMonster;
 import org.lasque.effectcamerademo.views.props.model.PropsItemSticker;
 import org.lasque.tusdkpulse.core.TuSdk;
@@ -131,11 +135,13 @@ public class RecordView extends RelativeLayout {
 
     public final static HashMap<SelesParameters.FilterModel, Integer> mFilterMap = new HashMap<SelesParameters.FilterModel, Integer>();
 
+    public final static int DOUBLE_VIEW_INDEX = 50;
+
     static {
         mFilterMap.put(SelesParameters.FilterModel.Filter, 11);
         mFilterMap.put(SelesParameters.FilterModel.SkinFace, 12);
 
-        mFilterMap.put(SelesParameters.FilterModel.Reshape,13);
+        mFilterMap.put(SelesParameters.FilterModel.Reshape, 13);
         mFilterMap.put(SelesParameters.FilterModel.CosmeticFace, 14);
         mFilterMap.put(SelesParameters.FilterModel.MonsterFace, 15);
         mFilterMap.put(SelesParameters.FilterModel.PlasticFace, 16);
@@ -149,8 +155,12 @@ public class RecordView extends RelativeLayout {
         mCameraView = cameraView;
     }
 
-    public enum RecordState{
-        Recording,Paused,RecordCompleted,RecordTimeOut,Saving,SaveCompleted;
+    public enum RecordState {
+        Recording, Paused, RecordCompleted, RecordTimeOut, Saving, SaveCompleted;
+    }
+
+    public enum DoubleViewMode {
+        None, ViewInView, TopBottom, LeftRight;
     }
 
     /**
@@ -159,14 +169,12 @@ public class RecordView extends RelativeLayout {
     public interface RecordType {
         // 拍摄
         int CAPTURE = 0;
-        // 长按拍摄
-        int LONG_CLICK_RECORD = 1;
         // 单击拍摄
         int SHORT_CLICK_RECORD = 2;
-        // 长按录制中
-        int LONG_CLICK_RECORDING = 3;
         // 短按录制中
         int SHORT_CLICK_RECORDING = 4;
+        //合拍
+        int DOUBLE_VIEW_RECORD = 5;
     }
 
     /**
@@ -193,7 +201,7 @@ public class RecordView extends RelativeLayout {
         /**
          * 停止录制视频
          */
-        void stopRecording();
+        boolean stopRecording();
 
         /**
          * 关闭录制界面
@@ -211,6 +219,14 @@ public class RecordView extends RelativeLayout {
         int getFragmentSize();
 
         void popFragment();
+
+        void selectVideo();
+
+        void updateDoubleViewMode(DoubleViewMode mode);
+
+        void selectAudio();
+
+        void updateMicState(boolean isOpen);
     }
 
     public void setDelegate(TuSDKMovieRecordDelegate delegate) {
@@ -241,7 +257,7 @@ public class RecordView extends RelativeLayout {
 
     private FilterPipe mFP;
 
-    private ExecutorService mRenderPool;
+    private DispatchQueue mRenderPool;
 
     private HashMap<SelesParameters.FilterModel, Filter> mCurrentFilterMap = new HashMap<>();
 
@@ -250,6 +266,8 @@ public class RecordView extends RelativeLayout {
     private Filter mRatioFilter;
 
     private AspectRatioFilter.PropertyBuilder mRatioProperty = new AspectRatioFilter.PropertyBuilder();
+
+    private DoubleViewMode mCurrentDoubleViewMode = DoubleViewMode.LeftRight;
 
     /******************************* View ********************************/
     private TuSdkVideoFocusTouchView mFocusTouchView;
@@ -337,13 +355,11 @@ public class RecordView extends RelativeLayout {
      */
     private TextView mShootButton;
     /**
-     * 长按录制
-     */
-    private TextView mLongButton;
-    /**
      * 单击拍摄
      */
     private TextView mClickButton;
+
+    private TextView mDoubleViewButton;
 
     /**
      * 更多设置视图
@@ -370,6 +386,13 @@ public class RecordView extends RelativeLayout {
      */
     private RelativeLayout mChangeAudioLayout;
     private RadioGroup mChangeAudioGroup;
+
+    private RelativeLayout mSimultaneouslyLayer;
+    private TextView mTopBottomMode;
+    private TextView mLeftRightMode;
+    private TextView mViewInViewMode;
+
+    private boolean canChangeLayer = true;
 
 
     // 道具布局 贴纸+哈哈镜
@@ -413,6 +436,12 @@ public class RecordView extends RelativeLayout {
      * 保存按钮
      **/
     private TextView mSaveImageButton;
+
+    private LinearLayout mSelectAudio;
+    private TextView mAudioName;
+
+    private TextView mMicOpen;
+    private TextView mMicClose;
 
     private boolean isBeautyClose = false;
 
@@ -493,6 +522,35 @@ public class RecordView extends RelativeLayout {
         mChangeAudioGroup = findViewById(R.id.lsq_audio_group);
         mChangeAudioGroup.setOnCheckedChangeListener(mAudioOnCheckedChangeListener);
 
+        mSimultaneouslyLayer = findViewById(R.id.lsq_simultaneously_layer);
+        mTopBottomMode = findViewById(R.id.lsq_top_bottom);
+        mLeftRightMode = findViewById(R.id.lsq_left_right);
+        mViewInViewMode = findViewById(R.id.lsq_view_in_view);
+        mTopBottomMode.setOnClickListener(mOnSimultaneouslyModeChanged);
+        mLeftRightMode.setOnClickListener(mOnSimultaneouslyModeChanged);
+        mViewInViewMode.setOnClickListener(mOnSimultaneouslyModeChanged);
+
+        mMicOpen = findViewById(R.id.lsq_mic_open);
+        mMicOpen.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mDelegate != null) mDelegate.updateMicState(true);
+
+                mMicOpen.setTextColor(getResources().getColor(R.color.lsq_widget_speedbar_button_bg));
+                mMicClose.setTextColor(getResources().getColor(R.color.lsq_color_white));
+            }
+        });
+        mMicClose = findViewById(R.id.lsq_mic_close);
+        mMicClose.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mDelegate != null) mDelegate.updateMicState(false);
+
+                mMicClose.setTextColor(getResources().getColor(R.color.lsq_widget_speedbar_button_bg));
+                mMicOpen.setTextColor(getResources().getColor(R.color.lsq_color_white));
+            }
+        });
+
         // 底部功能按键视图
         mBottomBarLayout = findViewById(R.id.lsq_button_wrap_layout);
         // 贴纸按键
@@ -526,11 +584,11 @@ public class RecordView extends RelativeLayout {
 
         // 模式切换
         mShootButton = findViewById(R.id.lsq_shootButton);
-        mLongButton = findViewById(R.id.lsq_longButton);
         mClickButton = findViewById(R.id.lsq_clickButton);
+        mDoubleViewButton = findViewById(R.id.lsq_double_view_Button);
         mShootButton.setOnTouchListener(onModeBarTouchListener);
-        mLongButton.setOnTouchListener(onModeBarTouchListener);
         mClickButton.setOnTouchListener(onModeBarTouchListener);
+        mDoubleViewButton.setOnTouchListener(onModeBarTouchListener);
 
         // PreviewLayout
         mBackButton = findViewById(R.id.lsq_backButton);
@@ -539,6 +597,18 @@ public class RecordView extends RelativeLayout {
         mSaveImageButton.setOnClickListener(onClickListener);
         mPreViewImageView = findViewById(R.id.lsq_cameraPreviewImageView);
         mPreViewImageView.setOnClickListener(onClickListener);
+
+        mSelectAudio = findViewById(R.id.lsq_select_audio);
+        mSelectAudio.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mDelegate != null) {
+                    mDelegate.selectAudio();
+                }
+            }
+        });
+
+        mAudioName = findViewById(R.id.lsq_audio_name);
 
         // 速度控制条
         mSpeedModeBar = findViewById(R.id.lsq_movie_speed_bar);
@@ -606,6 +676,10 @@ public class RecordView extends RelativeLayout {
 
     }
 
+    public DoubleViewMode getCurrentDoubleViewMode() {
+        return mCurrentDoubleViewMode;
+    }
+
     private String mCurrentFilterCode = "";
 
     public TuSdkSize mCurrentRatio;
@@ -614,7 +688,7 @@ public class RecordView extends RelativeLayout {
      * @param filterPipe
      * @param renderPool
      */
-    public void initFilterPipe(FilterPipe filterPipe, ExecutorService renderPool) {
+    public void initFilterPipe(FilterPipe filterPipe, DispatchQueue renderPool) {
         mFP = filterPipe;
         mRenderPool = renderPool;
         mController.initCosmetic(mFP, mRenderPool);
@@ -654,20 +728,12 @@ public class RecordView extends RelativeLayout {
         mFilterReset.setOnClickListener(new TuSdkViewHelper.OnSafeClickListener() {
             @Override
             public void onSafeClick(View view) {
-                Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+                mRenderPool.runSync(new Runnable() {
                     @Override
-                    public Boolean call() throws Exception {
-                        boolean ret = mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.Filter));
-                        return ret;
+                    public void run() {
+                        mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.Filter));
                     }
                 });
-                try {
-                    res.get();
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
                 mFilterFragments.get(mFilterTabIndicator.getCurrentPosition()).removeFilter();
                 mFilterConfigView.setVisibility(View.GONE);
                 mFilterViewPagerAdapter.notifyDataSetChanged();
@@ -686,6 +752,9 @@ public class RecordView extends RelativeLayout {
         List<String> tabTitles = new ArrayList<>();
         List<FilterFragment> fragments = new ArrayList<>();
         for (FilterGroup group : mFilterGroups) {
+            if (group == null){
+                continue;
+            }
             FilterFragment fragment = FilterFragment.newInstance(group);
             if (group.groupId == 252) {
                 fragment.setOnFilterItemClickListener(new FilterFragment.OnFilterItemClickListener() {
@@ -748,7 +817,7 @@ public class RecordView extends RelativeLayout {
         getFocusTouchView();
     }
 
-    public void setExposure(){
+    public void setExposure() {
         mCameraMaxEV = mCamera.cameraParams().getMaxExposureCompensation();
         mCameraMinEV = mCamera.cameraParams().getMinExposureCompensation();
         mExposureSeekbar.setMax(mCameraMaxEV + Math.abs(mCameraMinEV));
@@ -765,13 +834,6 @@ public class RecordView extends RelativeLayout {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     if (TuSdkViewHelper.isFastDoubleClick()) return false;
-                    if (mRecordMode == RecordType.LONG_CLICK_RECORD) {
-                        setViewHideOrVisible(false);
-                        if (getDelegate().startRecording()){
-                            updateRecordButtonResource(RecordType.LONG_CLICK_RECORDING);
-
-                        }
-                    }
                     return true;
                 case MotionEvent.ACTION_UP:
                     // 点击拍照
@@ -779,14 +841,8 @@ public class RecordView extends RelativeLayout {
                         //todo 拍照
                         mCamera.shotPhoto();
                     }
-                    // 长按录制
-                    else if (mRecordMode == RecordType.LONG_CLICK_RECORD) {
-                        getDelegate().pauseRecording();
-                        updateMovieRecordState(RecordState.Paused,true);
-//                        updateRecordButtonResource(RecordType.LONG_CLICK_RECORD);
-                    }
                     // 点击录制
-                    else if (mRecordMode == RecordType.SHORT_CLICK_RECORD) {
+                    else if (mRecordMode == RecordType.SHORT_CLICK_RECORD || mRecordMode == RecordType.DOUBLE_VIEW_RECORD) {
                         // 是否录制中
                         if (getDelegate().isRecording()) {
                             getDelegate().pauseRecording();
@@ -794,7 +850,7 @@ public class RecordView extends RelativeLayout {
                         } else {
                             //todo 录制
                             setViewHideOrVisible(false);
-                            if (getDelegate().startRecording()){
+                            if (getDelegate().startRecording()) {
                                 updateRecordButtonResource(RecordType.SHORT_CLICK_RECORDING);
                             }
                         }
@@ -1024,9 +1080,10 @@ public class RecordView extends RelativeLayout {
     protected void changeVideoFilterCode(final String code) {
         isFilterReset = false;
         SelesParameters selesParameters = new SelesParameters(code, SelesParameters.FilterModel.Filter);
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 int filterIndex = mFilterMap.get(SelesParameters.FilterModel.Filter);
                 mFP.deleteFilter(filterIndex);
                 List<FilterOption> options = FilterLocalPackage.shared().getFilters(Arrays.asList(code));
@@ -1046,39 +1103,22 @@ public class RecordView extends RelativeLayout {
                 mFilterProperty.strength = value;
                 mPropertyMap.put(SelesParameters.FilterModel.Filter, mFilterProperty);
                 boolean ret = mFP.addFilter(filterIndex, filter);
-                filter.setProperty(TusdkImageFilter.PROP_PARAM,mFilterProperty.makeProperty());
-                mCurrentFilterMap.put(SelesParameters.FilterModel.Filter,filter);
-                return ret;
+                filter.setProperty(TusdkImageFilter.PROP_PARAM, mFilterProperty.makeProperty());
+                mCurrentFilterMap.put(SelesParameters.FilterModel.Filter, filter);
             }
         });
-
-        try {
-            res.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
         selesParameters.setListener(new SelesParameters.SelesParametersListener() {
             @Override
             public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
-                Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+
+                mRenderPool.runSync(new Runnable() {
                     @Override
-                    public Boolean call() throws Exception {
+                    public void run() {
                         TusdkImageFilter.MixedPropertyBuilder mFilterProperty = (TusdkImageFilter.MixedPropertyBuilder) mPropertyMap.get(SelesParameters.FilterModel.Filter);
                         mFilterProperty.strength = arg.getPrecentValue();
                         boolean ret = mCurrentFilterMap.get(SelesParameters.FilterModel.Filter).setProperty(TusdkImageFilter.PROP_PARAM, mFilterProperty.makeProperty());
-                        return ret;
                     }
                 });
-
-                try {
-                    res.get();
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
             }
         });
         mFilterConfigView.setFilterArgs(selesParameters.getArgs());
@@ -1223,15 +1263,15 @@ public class RecordView extends RelativeLayout {
         return mFocusTouchView;
     }
 
-    public void setDisplaySize(int width,int height){
-        TLog.e("Surface Size %s || %s",width,height);
+    public void setDisplaySize(int width, int height) {
+        TLog.e("Surface Size %s || %s", width, height);
     }
 
     private boolean isRecording() {
         return false;
     }
 
-    public void setWrapSize(TuSdkSize wrapSize){
+    public void setWrapSize(TuSdkSize wrapSize) {
         mRegionHandle.setWrapSize(wrapSize);
     }
 
@@ -1245,9 +1285,9 @@ public class RecordView extends RelativeLayout {
     protected void changeVideoComicEffectCode(final String code) {
         isFilterReset = false;
 
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 int filterIndex = mFilterMap.get(SelesParameters.FilterModel.Filter);
                 mFP.deleteFilter(filterIndex);
                 Filter filter = new Filter(mFP.getContext(), TusdkImageFilter.TYPE_NAME);
@@ -1256,17 +1296,9 @@ public class RecordView extends RelativeLayout {
                 filter.setConfig(config);
                 TusdkImageFilter.MixedPropertyBuilder mFilterProperty = new TusdkImageFilter.MixedPropertyBuilder();
                 mPropertyMap.put(SelesParameters.FilterModel.Filter, mFilterProperty);
-                return mFP.addFilter(filterIndex, filter);
+                mFP.addFilter(filterIndex, filter);
             }
         });
-
-        try {
-            res.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
         mFilterValueMap.edit().putString(DEFAULT_FILTER_CODE, code).apply();
         mFilterValueMap.edit().putLong(DEFAULT_FILTER_GROUP, mFilterGroups.get(mFilterViewPager.getCurrentItem()).groupId).apply();
         if (mFilterTabIndicator.getCurrentPosition() != -1) {
@@ -1327,25 +1359,24 @@ public class RecordView extends RelativeLayout {
          * 移除道具
          * @param propsItem
          */
+
+        private boolean removeRes = false;
+
+        private boolean selectRes = false;
+
         @Override
         public void removePropsItem(PropsItem propsItem) {
             if (propsItemUsed(propsItem)) {
-                Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+                mRenderPool.runSync(new Runnable() {
                     @Override
-                    public Boolean call() throws Exception {
+                    public void run() {
                         int stickerIndex = mFilterMap.get(SelesParameters.FilterModel.StickerFace);
-                        return mFP.deleteFilter(stickerIndex);
+                        removeRes = mFP.deleteFilter(stickerIndex);
                     }
                 });
 
-                try {
-                    if (res.get()){
-                        mCurrentFilterMap.remove(SelesParameters.FilterModel.StickerFace);
-                    }
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+                if (removeRes) {
+                    mCurrentFilterMap.remove(SelesParameters.FilterModel.StickerFace);
                 }
             }
         }
@@ -1355,9 +1386,10 @@ public class RecordView extends RelativeLayout {
         @Override
         public void didSelectPropsItem(PropsItem propsItem) {
             mPropsItemPagerAdapter.notifyAllPageData();
-            Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+
+            mRenderPool.runSync(new Runnable() {
                 @Override
-                public Boolean call() throws Exception {
+                public void run() {
                     mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
                     mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace));
                     int stickerIndex = mFilterMap.get(SelesParameters.FilterModel.StickerFace);
@@ -1367,18 +1399,11 @@ public class RecordView extends RelativeLayout {
                     config.setNumber(TusdkLiveStickerFilter.CONFIG_ID, ((PropsItemSticker) propsItem).getStickerGroup().groupId);
                     sticker.setConfig(config);
                     mCurrentFilterMap.put(SelesParameters.FilterModel.StickerFace, sticker);
-                    return mFP.addFilter(stickerIndex, sticker);
+                    selectRes = mFP.addFilter(stickerIndex, sticker);
                 }
             });
-
-            try {
-                if (res.get()){
-                    mCurrentGroupId = ((PropsItemSticker) propsItem).getStickerGroup().groupId;
-                }
-            } catch (ExecutionException e) {
-                e.printStackTrace();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
+            if (selectRes) {
+                mCurrentGroupId = ((PropsItemSticker) propsItem).getStickerGroup().groupId;
             }
         }
 
@@ -1390,7 +1415,8 @@ public class RecordView extends RelativeLayout {
          */
         @Override
         public boolean propsItemUsed(PropsItem propsItem) {
-            if (mCurrentFilterMap.get(SelesParameters.FilterModel.StickerFace) == null) return false;
+            if (mCurrentFilterMap.get(SelesParameters.FilterModel.StickerFace) == null)
+                return false;
             long groupId = ((PropsItemSticker) propsItem).getStickerGroup().groupId;
             return mCurrentGroupId == groupId;
         }
@@ -1404,9 +1430,10 @@ public class RecordView extends RelativeLayout {
         public void didSelectPropsItem(PropsItem propsItem) {
             hideBeautyBarLayout();
             mBeautyPlasticRecyclerAdapter.clearSelect();
-            Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+
+            mRenderPool.runSync(new Runnable() {
                 @Override
-                public Boolean call() throws Exception {
+                public void run() {
                     mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
                     mCurrentFilterMap.remove(SelesParameters.FilterModel.StickerFace);
                     mCurrentFilterMap.remove(SelesParameters.FilterModel.PlasticFace);
@@ -1420,19 +1447,10 @@ public class RecordView extends RelativeLayout {
                     config.setString(TusdkFaceMonsterFilter.CONFIG_TYPE, ((PropsItemMonster) propsItem).getMonsterCode());
                     filter.setConfig(config);
                     boolean ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace), filter);
-                    mCurrentFilterMap.put(SelesParameters.FilterModel.MonsterFace,filter);
-                    return ret;
+                    mCurrentFilterMap.put(SelesParameters.FilterModel.MonsterFace, filter);
                 }
             });
-
-            try {
-                res.get();
-                mPropsItemPagerAdapter.notifyAllPageData();
-            } catch (ExecutionException e) {
-                e.printStackTrace();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            mPropsItemPagerAdapter.notifyAllPageData();
         }
 
         /**
@@ -1443,7 +1461,8 @@ public class RecordView extends RelativeLayout {
          */
         @Override
         public boolean propsItemUsed(PropsItem propsItem) {
-            if (mCurrentFilterMap.get(SelesParameters.FilterModel.MonsterFace) == null) return false;
+            if (mCurrentFilterMap.get(SelesParameters.FilterModel.MonsterFace) == null)
+                return false;
             boolean res = mCurrentFilterMap.get(SelesParameters.FilterModel.MonsterFace).getConfig().getString(TusdkFaceMonsterFilter.CONFIG_TYPE).equals(((PropsItemMonster) propsItem).getMonsterCode());
             return res;
         }
@@ -2021,21 +2040,12 @@ public class RecordView extends RelativeLayout {
                 public void onClear() {
                     hideBeautyBarLayout();
 
-                    Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+                    mRenderPool.runSync(new Runnable() {
                         @Override
-                        public Boolean call() throws Exception {
+                        public void run() {
                             boolean ret = mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace));
-                            return ret;
                         }
                     });
-
-                    try {
-                        res.get();
-                    } catch (ExecutionException e) {
-                        e.printStackTrace();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
                     mCurrentSkinMode = null;
                     isBeautyClose = true;
                 }
@@ -2172,24 +2182,15 @@ public class RecordView extends RelativeLayout {
                     hideBeautyBarLayout();
                 }
 
-                Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+                mRenderPool.runSync(new Runnable() {
                     @Override
-                    public Boolean call() throws Exception {
+                    public void run() {
                         boolean ret = false;
                         if (mFP.getFilter(mFilterMap.get(SelesParameters.FilterModel.CosmeticFace)) == null) {
                             ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.CosmeticFace), mController.getCosmeticFilter());
                         }
-                        return ret;
                     }
                 });
-
-                try {
-                    res.get();
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
 
 
                 break;
@@ -2248,9 +2249,9 @@ public class RecordView extends RelativeLayout {
      * @param skinMode true 自然(精准)美颜 false 极致美颜
      */
     private void switchConfigSkin(Constants.SkinMode skinMode) {
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace));
                 SelesParameters selesParameters = new SelesParameters();
                 selesParameters.appendFloatArg("whitening", 0.3f);
@@ -2258,25 +2259,25 @@ public class RecordView extends RelativeLayout {
                 Filter skinFilter = null;
                 Config config = null;
                 boolean ret = false;
-                switch (skinMode){
+                switch (skinMode) {
                     case SkinNatural:
-                        skinFilter = new Filter(mFP.getContext(),TusdkImageFilter.TYPE_NAME);
+                        skinFilter = new Filter(mFP.getContext(), TusdkImageFilter.TYPE_NAME);
                         config = new Config();
-                        config.setString(TusdkImageFilter.CONFIG_NAME,TusdkImageFilter.NAME_SkinNatural);
+                        config.setString(TusdkImageFilter.CONFIG_NAME, TusdkImageFilter.NAME_SkinNatural);
                         skinFilter.setConfig(config);
                         TusdkImageFilter.SkinNaturalPropertyBuilder naturalPropertyBuilder = new TusdkImageFilter.SkinNaturalPropertyBuilder();
                         naturalPropertyBuilder.smoothing = 0.8;
                         naturalPropertyBuilder.fair = 0.3;
                         naturalPropertyBuilder.ruddy = 0.4;
-                        mPropertyMap.put(SelesParameters.FilterModel.SkinFace,naturalPropertyBuilder);
+                        mPropertyMap.put(SelesParameters.FilterModel.SkinFace, naturalPropertyBuilder);
                         selesParameters.appendFloatArg("ruddy", 0.4f);
                         ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace), skinFilter);
-                        skinFilter.setProperty(TusdkImageFilter.PROP_PARAM,naturalPropertyBuilder.makeProperty());
+                        skinFilter.setProperty(TusdkImageFilter.PROP_PARAM, naturalPropertyBuilder.makeProperty());
                         break;
                     case SkinMoist:
-                        skinFilter = new Filter(mFP.getContext(),TusdkImageFilter.TYPE_NAME);
+                        skinFilter = new Filter(mFP.getContext(), TusdkImageFilter.TYPE_NAME);
                         config = new Config();
-                        config.setString(TusdkImageFilter.CONFIG_NAME,TusdkImageFilter.NAME_SkinHazy);
+                        config.setString(TusdkImageFilter.CONFIG_NAME, TusdkImageFilter.NAME_SkinHazy);
                         skinFilter.setConfig(config);
 
                         TusdkImageFilter.SkinHazyPropertyBuilder hazyPropertyBuilder = new TusdkImageFilter.SkinHazyPropertyBuilder();
@@ -2284,10 +2285,10 @@ public class RecordView extends RelativeLayout {
                         hazyPropertyBuilder.fair = 0.3;
                         hazyPropertyBuilder.ruddy = 0.4;
 
-                        mPropertyMap.put(SelesParameters.FilterModel.SkinFace,hazyPropertyBuilder);
+                        mPropertyMap.put(SelesParameters.FilterModel.SkinFace, hazyPropertyBuilder);
                         selesParameters.appendFloatArg("ruddy", 0.4f);
                         ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace), skinFilter);
-                        skinFilter.setProperty(TusdkImageFilter.PROP_PARAM,hazyPropertyBuilder.makeProperty());
+                        skinFilter.setProperty(TusdkImageFilter.PROP_PARAM, hazyPropertyBuilder.makeProperty());
                         break;
                     case Beauty:
                         skinFilter = new Filter(mFP.getContext(), TusdkBeautFaceV2Filter.TYPE_NAME);
@@ -2296,30 +2297,30 @@ public class RecordView extends RelativeLayout {
                         builder.smoothing = 0.8;
                         builder.whiten = 0.3;
                         builder.sharpen = 0.6f;
-                        mPropertyMap.put(SelesParameters.FilterModel.SkinFace,builder);
+                        mPropertyMap.put(SelesParameters.FilterModel.SkinFace, builder);
                         selesParameters.appendFloatArg("sharpen", 0.6f);
                         ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace), skinFilter);
-                        skinFilter.setProperty(TusdkBeautFaceV2Filter.PROP_PARAM,builder.makeProperty());
+                        skinFilter.setProperty(TusdkBeautFaceV2Filter.PROP_PARAM, builder.makeProperty());
                         break;
                 }
 
 
-                mCurrentFilterMap.put(SelesParameters.FilterModel.SkinFace,skinFilter);
+                mCurrentFilterMap.put(SelesParameters.FilterModel.SkinFace, skinFilter);
 
                 selesParameters.setListener(new SelesParameters.SelesParametersListener() {
                     @Override
                     public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
-                        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+                        mRenderPool.runSync(new Runnable() {
                             @Override
-                            public Boolean call() throws Exception {
+                            public void run() {
                                 boolean ret = false;
                                 Object skinProperty = mPropertyMap.get(SelesParameters.FilterModel.SkinFace);
                                 String key = arg.getKey();
                                 double progress = arg.getPrecentValue();
-                                switch (mCurrentSkinMode){
+                                switch (mCurrentSkinMode) {
                                     case SkinNatural:
                                         TusdkImageFilter.SkinNaturalPropertyBuilder naturalPropertyBuilder = (TusdkImageFilter.SkinNaturalPropertyBuilder) skinProperty;
-                                        switch (key){
+                                        switch (key) {
                                             case "whitening":
                                                 naturalPropertyBuilder.fair = progress;
                                                 break;
@@ -2330,11 +2331,11 @@ public class RecordView extends RelativeLayout {
                                                 naturalPropertyBuilder.ruddy = progress;
                                                 break;
                                         }
-                                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM,naturalPropertyBuilder.makeProperty());
+                                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM, naturalPropertyBuilder.makeProperty());
                                         break;
                                     case SkinMoist:
                                         TusdkImageFilter.SkinHazyPropertyBuilder hazyPropertyBuilder = (TusdkImageFilter.SkinHazyPropertyBuilder) skinProperty;
-                                        switch (key){
+                                        switch (key) {
                                             case "whitening":
                                                 hazyPropertyBuilder.fair = progress;
                                                 break;
@@ -2345,11 +2346,11 @@ public class RecordView extends RelativeLayout {
                                                 hazyPropertyBuilder.ruddy = progress;
                                                 break;
                                         }
-                                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM,hazyPropertyBuilder.makeProperty());
+                                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM, hazyPropertyBuilder.makeProperty());
                                         break;
                                     case Beauty:
                                         TusdkBeautFaceV2Filter.PropertyBuilder faceProperty = (TusdkBeautFaceV2Filter.PropertyBuilder) skinProperty;
-                                        switch (key){
+                                        switch (key) {
                                             case "whitening":
                                                 faceProperty.whiten = progress;
                                                 break;
@@ -2360,38 +2361,18 @@ public class RecordView extends RelativeLayout {
                                                 faceProperty.sharpen = progress;
                                                 break;
                                         }
-                                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkBeautFaceV2Filter.PROP_PARAM,faceProperty.makeProperty());
+                                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkBeautFaceV2Filter.PROP_PARAM, faceProperty.makeProperty());
                                         break;
                                 }
-                                return ret;
                             }
                         });
-
-                        try {
-                            res.get();
-                        } catch (ExecutionException e) {
-                            e.printStackTrace();
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
                     }
                 });
 
                 mSkinParameters = selesParameters;
                 mCurrentSkinMode = skinMode;
-
-
-
-                return ret;
             }
         });
-        try {
-            res.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
 
         // 滤镜名显示
         showHitTitle(TuSdkContext.getString(getSkinModeTitle(skinMode)));
@@ -2418,15 +2399,15 @@ public class RecordView extends RelativeLayout {
      * @param progress
      */
     private void submitSkinParamter(String key, float progress) {
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 boolean ret = false;
                 Object skinProperty = mPropertyMap.get(SelesParameters.FilterModel.SkinFace);
-                switch (mCurrentSkinMode){
+                switch (mCurrentSkinMode) {
                     case SkinNatural:
                         TusdkImageFilter.SkinNaturalPropertyBuilder naturalPropertyBuilder = (TusdkImageFilter.SkinNaturalPropertyBuilder) skinProperty;
-                        switch (key){
+                        switch (key) {
                             case "whitening":
                                 naturalPropertyBuilder.fair = progress;
                                 break;
@@ -2437,11 +2418,11 @@ public class RecordView extends RelativeLayout {
                                 naturalPropertyBuilder.ruddy = progress;
                                 break;
                         }
-                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM,naturalPropertyBuilder.makeProperty());
+                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM, naturalPropertyBuilder.makeProperty());
                         break;
                     case SkinMoist:
                         TusdkImageFilter.SkinHazyPropertyBuilder hazyPropertyBuilder = (TusdkImageFilter.SkinHazyPropertyBuilder) skinProperty;
-                        switch (key){
+                        switch (key) {
                             case "whitening":
                                 hazyPropertyBuilder.fair = progress;
                                 break;
@@ -2452,11 +2433,11 @@ public class RecordView extends RelativeLayout {
                                 hazyPropertyBuilder.ruddy = progress;
                                 break;
                         }
-                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM,hazyPropertyBuilder.makeProperty());
+                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM, hazyPropertyBuilder.makeProperty());
                         break;
                     case Beauty:
                         TusdkBeautFaceV2Filter.PropertyBuilder faceProperty = (TusdkBeautFaceV2Filter.PropertyBuilder) skinProperty;
-                        switch (key){
+                        switch (key) {
                             case "whitening":
                                 faceProperty.whiten = progress;
                                 break;
@@ -2467,20 +2448,11 @@ public class RecordView extends RelativeLayout {
                                 faceProperty.sharpen = progress;
                                 break;
                         }
-                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkBeautFaceV2Filter.PROP_PARAM,faceProperty.makeProperty());
+                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkBeautFaceV2Filter.PROP_PARAM, faceProperty.makeProperty());
                         break;
                 }
-                return ret;
             }
         });
-
-        try {
-            res.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
 
 
     }
@@ -2493,28 +2465,19 @@ public class RecordView extends RelativeLayout {
      * @param position
      */
     private void switchBeautyPlasticConfig(int position) {
-        if (mCurrentFilterMap.get(SelesParameters.FilterModel.MonsterFace) != null){
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
-            @Override
-            public Boolean call() throws Exception {
-                mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
-                mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace));
-                return true;
-            }
-        });
-
-        try {
-            res.get();
+        if (mCurrentFilterMap.get(SelesParameters.FilterModel.MonsterFace) != null) {
+            mRenderPool.runSync(new Runnable() {
+                @Override
+                public void run() {
+                    mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
+                    mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace));
+                }
+            });
             mPropsItemPagerAdapter.notifyAllPageData();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
         }
 
 
-        if (mFP.getFilter(mFilterMap.get(SelesParameters.FilterModel.PlasticFace)) == null){
+        if (mFP.getFilter(mFilterMap.get(SelesParameters.FilterModel.PlasticFace)) == null) {
             initPlastic();
         }
 
@@ -2522,24 +2485,23 @@ public class RecordView extends RelativeLayout {
         mBeautyPlasticsConfigView.setFilterArgs(Arrays.asList(filterArg));
 
 
-
     }
 
-    private void addReshape(){
+    private void addReshape() {
         Filter reshapeFilter = new Filter(mFP.getContext(), TusdkReshapeFilter.TYPE_NAME);
-        boolean reshapeRes = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.Reshape),reshapeFilter);
-        mCurrentFilterMap.put(SelesParameters.FilterModel.Reshape,reshapeFilter);
+        boolean reshapeRes = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.Reshape), reshapeFilter);
+        mCurrentFilterMap.put(SelesParameters.FilterModel.Reshape, reshapeFilter);
     }
 
-    private void removeReshape(){
+    private void removeReshape() {
         mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.Reshape));
         mCurrentFilterMap.remove(SelesParameters.FilterModel.Reshape);
     }
 
     private void initPlastic() {
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 if (mFP.getFilter(mFilterMap.get(SelesParameters.FilterModel.PlasticFace)) == null) {
                     Filter plasticFilter = new Filter(mFP.getContext(), TusdkFacePlasticFilter.TYPE_NAME);
 
@@ -2552,9 +2514,9 @@ public class RecordView extends RelativeLayout {
 
                     for (String key : mDefaultBeautyPercentParams.keySet()) {
                         float value = mDefaultBeautyPercentParams.get(key);
-                        if (mReshapePlastics.contains(key)){
+                        if (mReshapePlastics.contains(key)) {
                             parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                            switch (key){
+                            switch (key) {
                                 case "eyelidAlpha":
                                     reshapeProperty.eyelidOpacity = value;
                                     break;
@@ -2601,27 +2563,27 @@ public class RecordView extends RelativeLayout {
                                     plasticProperty.noseHeight = value;
                                     break;
                                 case "mouthWidth":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.mouthWidth = value;
                                     break;
                                 case "lips":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.lipsThickness = value;
                                     break;
                                 case "philterum":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.philterumThickness = value;
                                     break;
                                 case "archEyebrow":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.browThickness = value;
                                     break;
                                 case "browPosition":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.browHeight = value;
                                     break;
                                 case "jawSize":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.chinThickness = value;
                                     break;
                                 case "cheekLowBoneNarrow":
@@ -2629,7 +2591,7 @@ public class RecordView extends RelativeLayout {
                                     plasticProperty.cheekLowBoneNarrow = value;
                                     break;
                                 case "eyeAngle":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.eyeAngle = value;
                                     break;
                                 case "eyeInnerConer":
@@ -2641,15 +2603,15 @@ public class RecordView extends RelativeLayout {
                                     plasticProperty.eyeOuterConer = value;
                                     break;
                                 case "eyeDis":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.eyeDistance = value;
                                     break;
                                 case "eyeHeight":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.eyeHeight = value;
                                     break;
                                 case "forehead":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key),-1,1);
+                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
                                     plasticProperty.foreheadHeight = value;
                                     break;
                                 case "cheekBoneNarrow":
@@ -2661,7 +2623,7 @@ public class RecordView extends RelativeLayout {
                         }
                     }
 
-                    plasticFilter.setProperty(TusdkFacePlasticFilter.PROP_PARAM,plasticProperty.makeProperty());
+                    plasticFilter.setProperty(TusdkFacePlasticFilter.PROP_PARAM, plasticProperty.makeProperty());
 
 
                     parameters.setListener(new SelesParameters.SelesParametersListener() {
@@ -2669,7 +2631,7 @@ public class RecordView extends RelativeLayout {
                         public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
                             double value = arg.getValue();
                             String key = arg.getKey();
-                            if (mReshapePlastics.contains(key)){
+                            if (mReshapePlastics.contains(key)) {
                                 submitPlastic(value, key, reshapeProperty);
                             } else {
                                 submitPlastic(value, key, plasticProperty);
@@ -2678,21 +2640,11 @@ public class RecordView extends RelativeLayout {
                         }
                     });
                     mPropertyMap.put(SelesParameters.FilterModel.PlasticFace, plasticProperty);
-                    mPropertyMap.put(SelesParameters.FilterModel.Reshape,reshapeProperty);
+                    mPropertyMap.put(SelesParameters.FilterModel.Reshape, reshapeProperty);
                     mPlasticParameter = parameters;
-                    return plasticRes;
                 }
-                return false;
             }
         });
-
-        try {
-            res.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
     }
 
     private void submitPlastic(double value, String key, TusdkFacePlasticFilter.PropertyBuilder plasticProperty) {
@@ -2760,28 +2712,19 @@ public class RecordView extends RelativeLayout {
 
         }
         mPlasticParameter.getFilterArg(key).setValue((float) value);
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 boolean ret = mCurrentFilterMap.get(SelesParameters.FilterModel.PlasticFace).setProperty(TusdkFacePlasticFilter.PROP_PARAM, plasticProperty.makeProperty());
-                return ret;
+
             }
         });
-
-        try {
-            res.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
     }
 
-    private void submitPlastic(double value,String key,TusdkReshapeFilter.PropertyBuilder reshapeProperty){
+    private void submitPlastic(double value, String key, TusdkReshapeFilter.PropertyBuilder reshapeProperty) {
 
 
-
-        switch (key){
+        switch (key) {
             case "eyelidAlpha":
                 reshapeProperty.eyelidOpacity = value;
                 break;
@@ -2802,31 +2745,20 @@ public class RecordView extends RelativeLayout {
                 break;
         }
 
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
-                if (mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape) == null){
+            public void run() {
+                if (mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape) == null) {
                     addReshape();
                 }
                 boolean res = true;
-                if (checkEnableReshape()){
-                    res = mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape).setProperty(TusdkReshapeFilter.PROP_PARAM,reshapeProperty.makeProperty());
+                if (checkEnableReshape()) {
+                    res = mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape).setProperty(TusdkReshapeFilter.PROP_PARAM, reshapeProperty.makeProperty());
                 } else {
                     removeReshape();
                 }
-
-
-                return res;
             }
         });
-
-        try {
-            res.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
     }
 
     /**
@@ -2877,12 +2809,12 @@ public class RecordView extends RelativeLayout {
     public void saveResource() {
         updatePreviewImageLayoutStatus(false);
         File file = null;
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q){
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
             file = AlbumHelper.getAlbumFileAndroidQ();
         } else {
             file = AlbumHelper.getAlbumFile();
         }
-        ImageSqlHelper.saveJpgToAblum(mContext, mCaptureBitmap, 80, file,mCurrentResult.metadata);
+        ImageSqlHelper.saveJpgToAblum(mContext, mCaptureBitmap, 80, file, mCurrentResult.metadata);
         refreshFile(file);
         destroyBitmap();
         post(new Runnable() {
@@ -3045,10 +2977,23 @@ public class RecordView extends RelativeLayout {
                         mRecordProgress.removePreSegment();
 
                         if (interuptLayout.getChildCount() != 0) {
-                            interuptLayout.removeViewAt(interuptLayout.getChildCount() - 1);
+                            interuptLayout.post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    interuptLayout.removeViewAt(interuptLayout.getChildCount() - 1);
+
+                                }
+                            });
                         }
                         // 删除最后一段，重置录制状态
                         if (getDelegate().getFragmentSize() == 0) {
+                            interuptLayout.post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    interuptLayout.removeAllViews();
+                                }
+                            });
+
                             updateRecordButtonResource(mRecordMode);
                             setViewHideOrVisible(true);
                             return;
@@ -3065,9 +3010,10 @@ public class RecordView extends RelativeLayout {
 //                        return;
 //                    }
                     // 启动录制隐藏比例调节按钮
-                    mDelegate.stopRecording();
-                    initRecordProgress();
-                    setViewHideOrVisible(true);
+                    if(mDelegate.stopRecording()){
+                        initRecordProgress();
+                        setViewHideOrVisible(true);
+                    }
                     break;
                 // 取消拍摄
                 case R.id.lsq_backButton:
@@ -3079,28 +3025,48 @@ public class RecordView extends RelativeLayout {
                     break;
                 // 取消贴纸
                 case R.id.lsq_cancel_button:
-                    Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+                    mRenderPool.runSync(new Runnable() {
                         @Override
-                        public Boolean call() throws Exception {
+                        public void run() {
                             boolean ret = mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.StickerFace));
                             mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace));
-                            return true;
                         }
                     });
-                    try {
-                        if (res.get()){
-                            mCurrentFilterMap.remove(SelesParameters.FilterModel.StickerFace);
-                            mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
-                            mPropsItemPagerAdapter.notifyAllPageData();
-                        }
-                    } catch (ExecutionException e) {
-                        e.printStackTrace();
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+                    mCurrentFilterMap.remove(SelesParameters.FilterModel.StickerFace);
+                    mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
                     mPropsItemPagerAdapter.notifyAllPageData();
                     break;
             }
+        }
+    };
+
+
+    private OnClickListener mOnSimultaneouslyModeChanged = new OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (mDelegate == null) return;
+            if (!canChangeLayer) return;
+            switch (v.getId()) {
+                case R.id.lsq_top_bottom:
+                    mCurrentDoubleViewMode = DoubleViewMode.TopBottom;
+                    mTopBottomMode.setTextColor(getContext().getColor(R.color.lsq_widget_speedbar_button_bg));
+                    mLeftRightMode.setTextColor(getContext().getColor(R.color.lsq_color_white));
+                    mViewInViewMode.setTextColor(getContext().getColor(R.color.lsq_color_white));
+                    break;
+                case R.id.lsq_left_right:
+                    mCurrentDoubleViewMode = DoubleViewMode.LeftRight;
+                    mTopBottomMode.setTextColor(getContext().getColor(R.color.lsq_color_white));
+                    mLeftRightMode.setTextColor(getContext().getColor(R.color.lsq_widget_speedbar_button_bg));
+                    mViewInViewMode.setTextColor(getContext().getColor(R.color.lsq_color_white));
+                    break;
+                case R.id.lsq_view_in_view:
+                    mCurrentDoubleViewMode = DoubleViewMode.ViewInView;
+                    mTopBottomMode.setTextColor(getContext().getColor(R.color.lsq_color_white));
+                    mLeftRightMode.setTextColor(getContext().getColor(R.color.lsq_color_white));
+                    mViewInViewMode.setTextColor(getContext().getColor(R.color.lsq_widget_speedbar_button_bg));
+                    break;
+            }
+            mDelegate.updateDoubleViewMode(mCurrentDoubleViewMode);
         }
     };
 
@@ -3132,7 +3098,7 @@ public class RecordView extends RelativeLayout {
      *
      * @param type
      */
-    private void updateCameraRatio(int type) {
+    public void updateCameraRatio(int type) {
         // 只要开始录制就不可切换
         if (mDelegate.getFragmentSize() > 0) return;
         switch (type) {
@@ -3140,23 +3106,29 @@ public class RecordView extends RelativeLayout {
                 mRadio1_1.setImageResource(R.drawable.lsq_video_popup_ic_scale_square_selected);
                 mRadio3_4.setImageResource(R.drawable.lsq_video_popup_ic_scale_3_4);
                 mRadioFull.setImageResource(R.drawable.lsq_video_popup_ic_scale_full);
-                switchCameraRatio(new Point(1,1));
+                switchCameraRatio(new Point(1, 1));
                 break;
             case RatioType.ratio_3_4:
                 mRadio1_1.setImageResource(R.drawable.lsq_video_popup_ic_scale_square);
                 mRadio3_4.setImageResource(R.drawable.lsq_video_popup_ic_scale_3_4_selected);
                 mRadioFull.setImageResource(R.drawable.lsq_video_popup_ic_scale_full);
-                switchCameraRatio(new Point(3,4));
+                switchCameraRatio(new Point(3, 4));
                 break;
             case RatioType.ratio_orgin:
                 mRadio1_1.setImageResource(R.drawable.lsq_video_popup_ic_scale_square);
                 mRadio3_4.setImageResource(R.drawable.lsq_video_popup_ic_scale_3_4);
                 mRadioFull.setImageResource(R.drawable.lsq_video_popup_ic_scale_full_selected);
                 TuSdkSize orgin = mRegionHandle.getWrapSize();
-                TuCameraAspectRatio ratio = TuCameraAspectRatio.of(orgin.width,orgin.height);
-                switchCameraRatio(new Point(ratio.getX(),ratio.getY()));
+                TuCameraAspectRatio ratio = TuCameraAspectRatio.of(orgin.width, orgin.height);
+                switchCameraRatio(new Point(ratio.getX(), ratio.getY()));
                 break;
         }
+    }
+
+    public void onDoubleView(){
+        mRadio1_1.setImageResource(R.drawable.lsq_video_popup_ic_scale_square);
+        mRadio3_4.setImageResource(R.drawable.lsq_video_popup_ic_scale_3_4);
+        mRadioFull.setImageResource(R.drawable.lsq_video_popup_ic_scale_full_selected);
     }
 
     /**
@@ -3166,45 +3138,9 @@ public class RecordView extends RelativeLayout {
      */
     private void switchCameraRatio(Point ratio) {
         if (mCamera == null) return;
-        TLog.e("current ratio %s",ratio.toString());
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
-            @Override
-            public Boolean call() throws Exception {
-//                mRatioProperty.widthRatio = ratio.x;
-//                mRatioProperty.heightRatio = ratio.y;
-//                mCurrentRatio = TuSdkSize.create(ratio.x,ratio.y);
-//                boolean ret = mRatioFilter.setProperty(AspectRatioFilter.PROP_PARAM,mRatioProperty.makeProperty());
-                return true;
-            }
-        });
+        TLog.e("current ratio %s", ratio.toString());
 
-        try {
-            res.get();
-
-//            mCameraView.post(new Runnable() {
-//                @Override
-//                public void run() {
-//                    TuSdkSize size = TuSdkContext.getScreenSize();
-//                    double width = size.width;
-//
-//                    double height = width / mRatioProperty.widthRatio * mRatioProperty.heightRatio;
-//
-//
-//                    LayoutParams params = (LayoutParams) mCameraView.getLayoutParams();
-//                    params.width = (int) width;
-//                    params.height = (int) height;
-//                    params.topMargin = (int) ((size.height - height) / 2);
-//                    mCameraView.setLayoutParams(params);
-//                }
-//            });
-
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-
-        mRegionHandle.setOffsetTopPercent(getPreviewOffsetTopPercent(ratio.x,ratio.y));
+        mRegionHandle.setOffsetTopPercent(getPreviewOffsetTopPercent(ratio.x, ratio.y));
 
         mRegionHandle.changeWithRatio(((float) ratio.x) / ratio.y, new RegionHandler.RegionChangerListener() {
             @Override
@@ -3213,7 +3149,7 @@ public class RecordView extends RelativeLayout {
             }
         });
 //
-        mDelegate.changedRatio(TuSdkSize.create(ratio.x,ratio.y));
+        mDelegate.changedRatio(TuSdkSize.create(ratio.x, ratio.y));
 
 
         // 设置预览区域顶部偏移量 必须在 changeRegionRatio 之前设置
@@ -3232,7 +3168,7 @@ public class RecordView extends RelativeLayout {
      * @param ratioType
      * @return
      */
-    protected float getPreviewOffsetTopPercent(int x,int y) {
+    protected float getPreviewOffsetTopPercent(int x, int y) {
         if (x == 1 && y == 1) return 0.1f;
         // 置顶
         return 0.f;
@@ -3246,7 +3182,7 @@ public class RecordView extends RelativeLayout {
     /**
      * 录制按键模式
      */
-    private int mRecordMode = RecordType.LONG_CLICK_RECORD;
+    private int mRecordMode = RecordType.SHORT_CLICK_RECORD;
 
     private float mPosX, mCurPosX;
     private static final int FLING_MIN_DISTANCE = 20;// 移动最小距离
@@ -3265,19 +3201,19 @@ public class RecordView extends RelativeLayout {
                     if (mCurPosX - mPosX > 0
                             && (Math.abs(mCurPosX - mPosX) > FLING_MIN_DISTANCE)) {
                         //向左滑动
-                        if (mRecordMode == RecordType.LONG_CLICK_RECORD) {
+                        if (mRecordMode == RecordType.SHORT_CLICK_RECORD) {
                             switchCameraModeButton(RecordType.CAPTURE);
-                        } else if (mRecordMode == RecordType.SHORT_CLICK_RECORD) {
-                            switchCameraModeButton(RecordType.LONG_CLICK_RECORD);
+                        } else if (mRecordMode == RecordType.DOUBLE_VIEW_RECORD) {
+                            switchCameraModeButton(RecordType.SHORT_CLICK_RECORD);
                         }
                         return false;
                     } else if (mCurPosX - mPosX < 0
                             && (Math.abs(mCurPosX - mPosX) > FLING_MIN_DISTANCE)) {
                         //向右滑动
                         if (mRecordMode == RecordType.CAPTURE) {
-                            switchCameraModeButton(RecordType.LONG_CLICK_RECORD);
-                        } else if (mRecordMode == RecordType.LONG_CLICK_RECORD) {
                             switchCameraModeButton(RecordType.SHORT_CLICK_RECORD);
+                        } else if (mRecordMode == RecordType.SHORT_CLICK_RECORD) {
+                            switchCameraModeButton(RecordType.DOUBLE_VIEW_RECORD);
                         }
                         return false;
                     }
@@ -3290,13 +3226,12 @@ public class RecordView extends RelativeLayout {
                             case R.id.lsq_shootButton:
                                 switchCameraModeButton(RecordType.CAPTURE);
                                 break;
-                            // 长按录制模式
-                            case R.id.lsq_longButton:
-                                switchCameraModeButton(RecordType.LONG_CLICK_RECORD);
-                                break;
                             // 点击录制模式
                             case R.id.lsq_clickButton:
                                 switchCameraModeButton(RecordType.SHORT_CLICK_RECORD);
+                                break;
+                            case R.id.lsq_double_view_Button:
+                                switchCameraModeButton(RecordType.DOUBLE_VIEW_RECORD);
                                 break;
                         }
                         return false;
@@ -3311,29 +3246,29 @@ public class RecordView extends RelativeLayout {
      *
      * @param index
      */
-    private void switchCameraModeButton(int index) {
+    public void switchCameraModeButton(int index) {
         if (valueAnimator != null && valueAnimator.isRunning() || mRecordMode == index) return;
 
         // 设置文字颜色
         mShootButton.setTextColor(index == 0 ? getResources().getColor(R.color.lsq_color_white) : getResources().getColor(R.color.lsq_alpha_white_66));
-        mLongButton.setTextColor(index == 1 ? getResources().getColor(R.color.lsq_color_white) : getResources().getColor(R.color.lsq_alpha_white_66));
         mClickButton.setTextColor(index == 2 ? getResources().getColor(R.color.lsq_color_white) : getResources().getColor(R.color.lsq_alpha_white_66));
+        mDoubleViewButton.setTextColor(index == 5 ? getResources().getColor(R.color.lsq_color_white) : getResources().getColor(R.color.lsq_alpha_white_66));
 
         // 设置偏移位置
         final float[] Xs = getModeButtonWidth();
 
         float offSet = 0;
-        if (mRecordMode == 0 && index == 1)
+        if (mRecordMode == 0 && index == 2)
             offSet = -(Xs[1] - Xs[0]) / 2 - (Xs[2] - Xs[1]) / 2;
-        else if (mRecordMode == 0 && index == 2)
+        else if (mRecordMode == 0 && index == 5)
             offSet = -(Xs[1] - Xs[0]) / 2 - (Xs[3] - Xs[2]) / 2 - (Xs[2] - Xs[1]);
-        else if (mRecordMode == 1 && index == 0)
-            offSet = (Xs[1] - Xs[0]) / 2 + (Xs[2] - Xs[1]) / 2;
-        else if (mRecordMode == 1 && index == 2)
-            offSet = -(Xs[2] - Xs[1]) / 2 - (Xs[3] - Xs[2]) / 2;
         else if (mRecordMode == 2 && index == 0)
+            offSet = (Xs[1] - Xs[0]) / 2 + (Xs[2] - Xs[1]) / 2;
+        else if (mRecordMode == 2 && index == 5)
+            offSet = -(Xs[2] - Xs[1]) / 2  - (Xs[3] - Xs[2]) / 2;
+        else if (mRecordMode == 5 && index == 0)
             offSet = (Xs[1] - Xs[0]) / 2 + (Xs[2] - Xs[1]) + (Xs[3] - Xs[2]) / 2;
-        else if (mRecordMode == 2 && index == 1)
+        else if (mRecordMode == 5 && index == 2)
             offSet = (Xs[2] - Xs[1]) / 2 + (Xs[3] - Xs[2]) / 2;
 
         // 切换动画
@@ -3344,8 +3279,8 @@ public class RecordView extends RelativeLayout {
             public void onAnimationUpdate(ValueAnimator animation) {
                 float offSet = (float) animation.getAnimatedValue();
                 mShootButton.setX(Xs[0] + offSet);
-                mLongButton.setX(Xs[1] + offSet);
-                mClickButton.setX(Xs[2] + offSet);
+                mClickButton.setX(Xs[1] + offSet);
+                mDoubleViewButton.setX(Xs[2] + offSet);
             }
         });
         valueAnimator.start();
@@ -3355,14 +3290,32 @@ public class RecordView extends RelativeLayout {
             mSpeedButton.setVisibility(GONE);
             mSpeedModeBar.setVisibility(GONE);
             mChangeAudioLayout.setVisibility(GONE);
-        } else if (index == RecordType.LONG_CLICK_RECORD) {
-            mSpeedButton.setVisibility(VISIBLE);
-            mSpeedModeBar.setVisibility(isSpeedChecked ? VISIBLE : GONE);
-            mChangeAudioLayout.setVisibility(VISIBLE);
+            mSimultaneouslyLayer.setVisibility(GONE);
+
+            findViewById(R.id.lsq_camera_radio_layer).setVisibility(View.VISIBLE);
         } else if (index == RecordType.SHORT_CLICK_RECORD) {
             mSpeedButton.setVisibility(VISIBLE);
             mSpeedModeBar.setVisibility(isSpeedChecked ? VISIBLE : GONE);
             mChangeAudioLayout.setVisibility(VISIBLE);
+            mSimultaneouslyLayer.setVisibility(GONE);
+
+            findViewById(R.id.lsq_camera_radio_layer).setVisibility(View.VISIBLE);
+        } else if (index == RecordType.DOUBLE_VIEW_RECORD) {
+            mSpeedButton.setVisibility(VISIBLE);
+            mSpeedModeBar.setVisibility(isSpeedChecked ? VISIBLE : GONE);
+            mChangeAudioLayout.setVisibility(VISIBLE);
+            mSimultaneouslyLayer.setVisibility(VISIBLE);
+
+            if (mDelegate != null)
+                mDelegate.selectVideo();
+
+            findViewById(R.id.lsq_camera_radio_layer).setVisibility(View.GONE);
+        }
+        if (index != RecordType.DOUBLE_VIEW_RECORD) {
+            if (mDelegate != null) mDelegate.updateDoubleViewMode(DoubleViewMode.None);
+            mSelectAudio.setVisibility(View.VISIBLE);
+        } else if ( index == RecordType.DOUBLE_VIEW_RECORD){
+            mSelectAudio.setVisibility(View.GONE);
         }
         updateRecordButtonResource(index);
         mRecordMode = index;
@@ -3374,9 +3327,9 @@ public class RecordView extends RelativeLayout {
     private float[] getModeButtonWidth() {
         float[] Xs = new float[4];
         Xs[0] = mShootButton.getX();
-        Xs[1] = mLongButton.getX();
-        Xs[2] = mClickButton.getX();
-        Xs[3] = mClickButton.getX() + mClickButton.getWidth();
+        Xs[1] = mClickButton.getX();
+        Xs[2] = mDoubleViewButton.getX();
+        Xs[3] = mDoubleViewButton.getX() + mDoubleViewButton.getWidth();
         return Xs;
     }
 
@@ -3485,20 +3438,16 @@ public class RecordView extends RelativeLayout {
                 mRecordButton.setBackgroundResource(R.drawable.tusdk_view_widget_shoot);
                 mRecordButton.setImageResource(0);
                 break;
-            case RecordType.LONG_CLICK_RECORD:
-                mRecordButton.setBackgroundResource(R.drawable.tusdk_view_widget_record_unpressed);
-                mRecordButton.setImageResource(0);
-                break;
             case RecordType.SHORT_CLICK_RECORD:
                 mRecordButton.setBackgroundResource(R.drawable.tusdk_view_widget_record_unpressed);
                 mRecordButton.setImageResource(R.drawable.video_ic_recording);
                 break;
-            case RecordType.LONG_CLICK_RECORDING:
-                mRecordButton.setBackgroundResource(R.drawable.tusdk_view_widget_record_pressed);
-                mRecordButton.setImageResource(0);
-                break;
             case RecordType.SHORT_CLICK_RECORDING:
                 mRecordButton.setBackgroundResource(R.drawable.tusdk_view_widget_record_pressed);
+                mRecordButton.setImageResource(R.drawable.video_ic_recording);
+                break;
+            case RecordType.DOUBLE_VIEW_RECORD:
+                mRecordButton.setBackgroundResource(R.drawable.tusdk_view_widget_record_unpressed);
                 mRecordButton.setImageResource(R.drawable.video_ic_recording);
                 break;
 
@@ -3527,13 +3476,35 @@ public class RecordView extends RelativeLayout {
 
         if (state == RecordState.Recording) // 开始录制
         {
-            if (mRecordMode == RecordType.LONG_CLICK_RECORD)
-                updateRecordButtonResource(RecordType.LONG_CLICK_RECORDING);
-            else
-                updateRecordButtonResource(RecordType.SHORT_CLICK_RECORDING);
+            updateRecordButtonResource(RecordType.SHORT_CLICK_RECORDING);
             setViewHideOrVisible(false);
             mMoreConfigLayout.setVisibility(GONE);
             setTextButtonDrawableTop(mMoreButton, false ? R.drawable.video_nav_ic_more_selected : R.drawable.video_nav_ic_more);
+            mSelectAudio.setVisibility(View.GONE);
+            mSimultaneouslyLayer.setVisibility(View.VISIBLE);
+            canChangeLayer = false;
+
+            switch (mCurrentDoubleViewMode){
+                case None:
+                    break;
+                case ViewInView:
+                    mTopBottomMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_gray));
+                    mLeftRightMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_gray));
+                    mViewInViewMode.setTextColor(getContext().getResources().getColor(R.color.lsq_widget_speedbar_button_bg));
+                    break;
+                case TopBottom:
+                    mTopBottomMode.setTextColor(getContext().getResources().getColor(R.color.lsq_widget_speedbar_button_bg));
+                    mLeftRightMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_gray));
+                    mViewInViewMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_gray));
+                    break;
+                case LeftRight:
+                    mTopBottomMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_gray));
+                    mLeftRightMode.setTextColor(getContext().getResources().getColor(R.color.lsq_widget_speedbar_button_bg));
+                    mViewInViewMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_gray));
+                    break;
+            }
+
+
 
         } else if (state == RecordState.Paused) // 已暂停录制
         {
@@ -3577,13 +3548,38 @@ public class RecordView extends RelativeLayout {
                 @Override
                 public void run() {
                     Toast.makeText(mContext, msg, Toast.LENGTH_SHORT).show();
+                    if (mRecordMode != RecordType.DOUBLE_VIEW_RECORD){
+                        mSelectAudio.setVisibility(View.VISIBLE);
+                    } else if (mRecordMode == RecordType.DOUBLE_VIEW_RECORD){
+                        mSimultaneouslyLayer.setVisibility(View.VISIBLE);
+                        canChangeLayer = true;
+                        switch (mCurrentDoubleViewMode){
+                            case None:
+                                break;
+                            case ViewInView:
+                                mTopBottomMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_white));
+                                mLeftRightMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_white));
+                                mViewInViewMode.setTextColor(getContext().getResources().getColor(R.color.lsq_widget_speedbar_button_bg));
+                                break;
+                            case TopBottom:
+                                mTopBottomMode.setTextColor(getContext().getResources().getColor(R.color.lsq_widget_speedbar_button_bg));
+                                mLeftRightMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_white));
+                                mViewInViewMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_white));
+                                break;
+                            case LeftRight:
+                                mTopBottomMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_white));
+                                mLeftRightMode.setTextColor(getContext().getResources().getColor(R.color.lsq_widget_speedbar_button_bg));
+                                mViewInViewMode.setTextColor(getContext().getResources().getColor(R.color.lsq_color_white));
+                                break;
+                        }
+                    }
                 }
             });
 
 
             updateRecordButtonResource(mRecordMode);
             setViewHideOrVisible(true);
-        } else if (state == RecordState.RecordTimeOut){
+        } else if (state == RecordState.RecordTimeOut) {
             String msg = getStringFromResource("lsq_max_audio_record_time");
 
             post(new Runnable() {
@@ -3593,10 +3589,8 @@ public class RecordView extends RelativeLayout {
                 }
             });
 
-            if (mRecordMode == RecordType.LONG_CLICK_RECORDING)
-                updateRecordButtonResource(RecordType.LONG_CLICK_RECORD);
-            else
-                updateRecordButtonResource(RecordType.SHORT_CLICK_RECORD);
+
+            updateRecordButtonResource(RecordType.SHORT_CLICK_RECORD);
             setViewHideOrVisible(true);
         }
     }
@@ -3684,11 +3678,11 @@ public class RecordView extends RelativeLayout {
 
     }
 
-    public TuSdkSize getWrapSize(){
+    public TuSdkSize getWrapSize() {
         return mRegionHandle.getWrapSize();
     }
 
-    public boolean checkEnableMarkSence(){
+    public boolean checkEnableMarkSence() {
         Filter reshapeFilter = mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape);
 
         boolean makeSence = reshapeFilter != null;
@@ -3698,7 +3692,23 @@ public class RecordView extends RelativeLayout {
         return makeSence;
     }
 
-    private boolean checkEnableReshape(){
+    public void updateAudioNameState(int visibility){
+        mSelectAudio.setVisibility(visibility);
+    }
+
+    public void setAudioName(String name) {
+        mAudioName.setText(name);
+    }
+
+    public void updateMinPosition(float leftPercent){
+        Button minTimeButton = (Button) findViewById(R.id.lsq_minTimeBtn);
+        LayoutParams minTimeLayoutParams = (LayoutParams) minTimeButton.getLayoutParams();
+        minTimeLayoutParams.leftMargin = (int) (TuSdkContext.getScreenSize().width * leftPercent)
+                - TuSdkContext.dip2px(minTimeButton.getWidth());
+        minTimeButton.setLayoutParams(minTimeLayoutParams);
+    }
+
+    private boolean checkEnableReshape() {
         TusdkReshapeFilter.PropertyBuilder builder = (TusdkReshapeFilter.PropertyBuilder) mPropertyMap.get(SelesParameters.FilterModel.Reshape);
         return builder.eyelidOpacity + builder.eyemazingOpacity + builder.whitenTeethOpacity + builder.removePouchOpacity + builder.removeWrinklesOpacity + builder.eyeDetailOpacity != 0;
     }

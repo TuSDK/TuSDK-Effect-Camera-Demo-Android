@@ -476,8 +476,18 @@
     <string name="lsq_congfigview_set_size">大小</string>
 
     <string name="lsq_capture">拍照</string>
-    <string name="lsq_click_shoot">点击拍摄</string>
+    <string name="lsq_click_shoot">录制</string>
     <string name="lsq_long_click_shoot">长按拍摄</string>
+    <string name="lsq_double_view">合拍</string>
+    <string name="lsq_double_view_more">布局</string>
+    <string name="lsq_mic_layer">麦克风</string>
+
+    <string name="lsq_view_in_view">抢镜</string>
+    <string name="lsq_top_bottom">上下</string>
+    <string name="lsq_left_right">左右</string>
+
+    <string name="lsq_mic_open">开启</string>
+    <string name="lsq_mic_close">关闭</string>
 
     <string name="lsq_max_audio_record_time">已达到最大录制时长</string>
     <string name="lsq_album_select_min_time">视频时长不得小于3秒，请重新选择。</string>

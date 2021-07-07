@@ -31,4 +31,11 @@
     <declare-styleable name="TuSdkVideoFocusTouchView">
 
     </declare-styleable>
+
+    <style name="Transparent" parent="android:Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@color/lsq_color_transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Translucent</item>
+        <item name="windowNoTitle">false</item>
+    </style>
 </resources>

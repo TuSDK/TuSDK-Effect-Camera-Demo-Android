@@ -224,7 +224,7 @@
             android:id="@+id/lsq_shootButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_toLeftOf="@+id/lsq_longButton"
+            android:layout_toLeftOf="@+id/lsq_clickButton"
             android:gravity="center"
             android:padding="@dimen/lsq_font_space_8"
             android:text="@string/lsq_capture"
@@ -232,24 +232,24 @@
             android:textSize="@dimen/lsq_font_size_28" />
 
         <TextView
-            android:id="@+id/lsq_longButton"
+            android:id="@+id/lsq_clickButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerHorizontal="true"
             android:gravity="center"
             android:padding="@dimen/lsq_font_space_8"
-            android:text="@string/lsq_long_click_shoot"
+            android:text="@string/lsq_click_shoot"
             android:textColor="@color/lsq_color_white"
             android:textSize="@dimen/lsq_font_size_28" />
 
         <TextView
-            android:id="@+id/lsq_clickButton"
+            android:id="@+id/lsq_double_view_Button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_toRightOf="@+id/lsq_longButton"
+            android:layout_toRightOf="@+id/lsq_clickButton"
             android:gravity="center"
             android:padding="@dimen/lsq_font_space_8"
-            android:text="@string/lsq_click_shoot"
+            android:text="@string/lsq_double_view"
             android:textColor="@color/lsq_alpha_white_66"
             android:textSize="@dimen/lsq_font_size_28" />
 
@@ -304,8 +304,31 @@
     <include layout="@layout/lsq_record_filter_list_config_view"/>
 
     <include layout="@layout/record_sticker_layout" />
-    
-    
 
+    <LinearLayout
+        android:id="@+id/lsq_select_audio"
+        android:layout_marginTop="72dp"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:orientation="horizontal"
+        android:background="@drawable/audio_select_background"
+        android:layout_width="100dp"
+        android:layout_height="32dp">
+        <ImageView
+            android:layout_marginStart="12dp"
+            android:layout_gravity="center_vertical"
+            android:src="@drawable/ic_music"
+            android:layout_width="20dp"
+            android:layout_height="20dp"/>
 
+        <TextView
+            android:id="@+id/lsq_audio_name"
+            android:layout_marginStart="4dp"
+            android:text="选择音乐"
+            android:textColor="@color/lsq_color_white"
+            android:textSize="12sp"
+            android:layout_gravity="center_vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
 </RelativeLayout>

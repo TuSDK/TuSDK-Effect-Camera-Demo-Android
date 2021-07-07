@@ -2,6 +2,7 @@ package org.lasque.effectcamerademo;
 
 import android.Manifest;
 import android.app.AlertDialog;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -12,31 +13,51 @@ import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.media.AudioFormat;
-import android.media.AudioRecord;
+import android.media.AudioManager;
+import android.media.AudioTrack;
+import android.media.MediaMetadataRetriever;
 import android.media.MediaRecorder;
 import android.net.Uri;
 import android.opengl.GLES20;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.MediaStore;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.Log;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.widget.ImageView;
+import android.widget.RelativeLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
 
+import com.tusdk.pulse.Config;
+import com.tusdk.pulse.DispatchQueue;
 import com.tusdk.pulse.Engine;
+import com.tusdk.pulse.MediaInspector;
 import com.tusdk.pulse.filter.FileExporter;
+import com.tusdk.pulse.filter.FileRecordAudioMixer;
 import com.tusdk.pulse.filter.Filter;
 import com.tusdk.pulse.filter.FilterDisplayView;
 import com.tusdk.pulse.filter.FilterPipe;
 import com.tusdk.pulse.filter.Image;
+import com.tusdk.pulse.filter.filters.SimultaneouslyFilter;
 import com.tusdk.pulse.utils.gl.GLContext;
 import com.tusdk.pulse.utils.gl.OutputSurface;
 
+import org.lasque.effectcamerademo.album.AlbumActivity;
+import org.lasque.effectcamerademo.album.AlbumInfo;
+import org.lasque.effectcamerademo.audio.AudioItem;
+import org.lasque.effectcamerademo.audio.AudioListActivity;
+import org.lasque.effectcamerademo.audio.AudioMixerItem;
+import org.lasque.effectcamerademo.audio.AudioRecord;
 import org.lasque.effectcamerademo.utils.Constants;
 import org.lasque.effectcamerademo.utils.PermissionUtils;
 import org.lasque.effectcamerademo.views.record.RecordView;
@@ -45,16 +66,19 @@ import org.lasque.tusdkpulse.core.TuSdkResult;
 import org.lasque.tusdkpulse.core.listener.TuSdkOrientationEventListener;
 import org.lasque.tusdkpulse.core.seles.SelesParameters;
 import org.lasque.tusdkpulse.core.struct.TuSdkSize;
+import org.lasque.tusdkpulse.core.struct.TuSdkSizeF;
 import org.lasque.tusdkpulse.core.struct.ViewSize;
 import org.lasque.tusdkpulse.core.utils.ContextUtils;
 import org.lasque.tusdkpulse.core.utils.FileHelper;
 import org.lasque.tusdkpulse.core.utils.TLog;
 import org.lasque.tusdkpulse.core.utils.ThreadHelper;
+import org.lasque.tusdkpulse.core.utils.TuSdkDate;
 import org.lasque.tusdkpulse.core.utils.hardware.CameraConfigs;
 import org.lasque.tusdkpulse.core.utils.hardware.InterfaceOrientation;
 import org.lasque.tusdkpulse.core.utils.image.AlbumHelper;
 import org.lasque.tusdkpulse.core.utils.image.BitmapHelper;
 import org.lasque.tusdkpulse.core.utils.image.ImageOrientation;
+import org.lasque.tusdkpulse.core.utils.image.RatioType;
 import org.lasque.tusdkpulse.core.utils.sqllite.ImageSqlHelper;
 import org.lasque.tusdkpulse.core.view.TuSdkViewHelper;
 import org.lasque.tusdkpulse.cx.hardware.camera.TuCamera;
@@ -67,6 +91,10 @@ import org.lasque.tusdkpulse.modules.view.widget.sticker.StickerFactory;
 import org.lasque.tusdkpulse.modules.view.widget.sticker.StickerResult;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -79,6 +107,10 @@ import java.util.concurrent.Future;
 
 import static android.os.Environment.DIRECTORY_DCIM;
 import static com.tusdk.pulse.filter.FileExporter.PITCH_TYPE_Normal;
+import static com.tusdk.pulse.filter.filters.SimultaneouslyFilter.PROP_RECT_PARAM;
+import static com.tusdk.pulse.filter.filters.SimultaneouslyFilter.PROP_SEEK_PARAM;
+import static org.lasque.effectcamerademo.base.BaseActivity.ALBUM_REQUEST_CODE;
+import static org.lasque.effectcamerademo.base.BaseActivity.ALBUM_RESULT_CODE;
 import static org.lasque.tusdkpulse.core.utils.hardware.CameraConfigs.CameraState.START;
 
 /**
@@ -101,21 +133,26 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private static long MAX_RECORD_DURATION = 15000;
 
+    private static int AUDIO_REQUEST_CODE = 4;
+
     private FilterDisplayView mCameraView;
 
     private RecordView mRecordView;
 
     private TuCamera mCamera;
 
-    private ExecutorService mRenderPool = Executors.newWorkStealingPool(1);
+//    private ExecutorService mRenderPool = Executors.newWorkStealingPool(1);Filter
+    private DispatchQueue mRenderPool = new DispatchQueue();
 
-    private ExecutorService mRecordPool = Executors.newFixedThreadPool(1);
+    private DispatchQueue mRecordPool = new DispatchQueue();
 
     private OutputSurface mOutputSurface;
 
     private GLContext mGLCtx;
 
     protected TuSdkSize mInputSize;
+
+    protected TuSdkSize mCurrentRenderSize;
 
     private ImageOrientation mPreviewOrientation;
 
@@ -126,6 +163,9 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     /** Texture ID */
     private int mTexture = -1;
+    private final int mTexCount = 4;
+    private int[] mTextures = new int[mTexCount];
+    private int mTexIdx = 0;
 
     private boolean isInitSuccess = false;
 
@@ -137,10 +177,14 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private double mCurrentStretch = 1.0;
 
+    private double mCurrentVideoStretch = 1.0;
+
+    private Bitmap mShotPhoto;
+
+    private ImageView mVideoSelectView;
+
 
     // ----------------------- 音频录制 ------------------------- //
-    private AudioRecord mAudioRecord;
-
     private int mBufferSize = 0;
 
     private int mBlockByteLength = 0;
@@ -165,97 +209,380 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private TuSdkSize mRectSize;
 
-    private boolean initRecorder(){
-        int audioSource = MediaRecorder.AudioSource.VOICE_COMMUNICATION;
-        int sampleRate = 44100;
-        int channelConfig = AudioFormat.CHANNEL_IN_STEREO;
-        int audioBitWidth = AudioFormat.ENCODING_PCM_16BIT;
-        int channelCount = 2;
-        int bitWidth = 16;
+    private SimultaneouslyFilter.PropertyBuilder siBuilder = new SimultaneouslyFilter.PropertyBuilder();
 
-        mBlockByteLength = 1024 * (channelCount) * (bitWidth / 8);
+    private String mCurrentDoubleViewVideoPath = "";
 
-        int minBufferSize = AudioRecord.getMinBufferSize(sampleRate,channelConfig,audioBitWidth);
-        int inputBufferSize = minBufferSize * 4;
-        int frameSizeInBytes = channelCount * 2;
-        mBufferSize = (inputBufferSize / frameSizeInBytes) * frameSizeInBytes;
+    private String mCurrentAudioPath = "";
 
-        if (mBufferSize < 1) {
-            return false;
+    private RecordView.DoubleViewMode mCurrentMode;
+
+    private AudioMixerItem mAudioItem;
+
+    private FileRecordAudioMixer mAudioMixer;
+
+    private AudioRecord mAudioRecord;
+
+    private long mCurrentPlayerPos = 0;
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable @org.jetbrains.annotations.Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == ALBUM_REQUEST_CODE){
+            if (resultCode == ALBUM_RESULT_CODE){
+
+
+                mRenderPool.runSync(new Runnable() {
+                    @Override
+                    public void run() {
+                        TuSdkSize size = ViewSize.create(mCameraView);
+                        mCurrentRatio = TuCameraAspectRatio.of(size.width,size.height);
+                        mRectSize = TuSdkSize.create(720, (int) (720.0 / mCurrentRatio.getX() * mCurrentRatio.getY()));
+                        mCurrentRenderSize = mRectSize;
+                        isNeedCreateTexture = true;
+                    }
+                });
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        mRecordView.onDoubleView();
+                    }
+                });
+
+                Bundle bundle = data.getBundleExtra("select");
+                List<AlbumInfo> infos = (ArrayList<AlbumInfo>) bundle.getSerializable("select");
+                if (infos.isEmpty()) return;
+
+
+                AlbumInfo info = infos.get(0);
+                CURRENT_MAX_RECORD_DURATION = info.getDuration();
+                MAX_RECORD_DURATION = info.getDuration();
+                mCurrentDoubleViewVideoPath = info.getPath();
+                updateDoubleView(info.getPath());
+
+                mCurrentAudioPath = info.getAudioPath();
+
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        mRecordView.setAudioName("选择音乐");
+
+                        mRecordView.updateMinPosition(((float) Constants.MIN_RECORDING_TIME) / (CURRENT_MAX_RECORD_DURATION / 1000));
+                    }
+                });
+
+
+            } else {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        mRecordView.switchCameraModeButton(RecordView.RecordType.SHORT_CLICK_RECORD);
+                    }
+                });
+            }
+        } else if (requestCode == AUDIO_REQUEST_CODE){
+            if (requestCode == AUDIO_REQUEST_CODE && resultCode == 11){
+                AudioItem audioPath = ((AudioItem) data.getSerializableExtra("audioPath"));
+
+                CURRENT_MAX_RECORD_DURATION = 15000;
+                MAX_RECORD_DURATION = 15000;
+                mCurrentAudioPath = audioPath.getPath();
+
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (TextUtils.isEmpty(audioPath.getPath())){
+                            mRecordView.setAudioName("选择音乐");
+                        } else {
+                            mRecordView.setAudioName(audioPath.getName());
+                        }
+
+                        mRecordView.updateMinPosition(((float) Constants.MIN_RECORDING_TIME) / (CURRENT_MAX_RECORD_DURATION / 1000.f));
+
+                    }
+                });
+
+            }
         }
 
-        mAudioRecord = new AudioRecord(audioSource,sampleRate , channelConfig, audioBitWidth, mBufferSize);
-
-        if (mAudioRecord.getState() != AudioRecord.STATE_INITIALIZED){
-            return false;
-        }
-
-        return true;
     }
 
-    private int read(AudioRecord record,byte[] bys){
-        int result = 0;
-        try {
-            result = record.read(bys,0,mBlockByteLength);
-        } catch (Exception e){
+    private void initAudioMixer(String audioPath) {
+        MediaInspector inspector = MediaInspector.shared();
+        MediaInspector.MediaInfo info = inspector.inspect(audioPath);
+        for (MediaInspector.MediaInfo.AVItem item : info.streams){
+            if (item instanceof MediaInspector.MediaInfo.Audio){
+                AudioMixerItem audioItem = new AudioMixerItem(audioPath,item.bitrate,((MediaInspector.MediaInfo.Audio) item).channels,((MediaInspector.MediaInfo.Audio) item).sampleRate);
+                mAudioItem = audioItem;
+                mRenderPool.runSync(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (mAudioMixer != null){
+                            mAudioMixer.close();
+                            mAudioMixer = null;
+                        }
 
+                        mAudioMixer = new FileRecordAudioMixer();
+                        Config config = new Config();
+                        config.setString(FileRecordAudioMixer.CONFIG_PATH,mAudioItem.getPath());
+//                        config.setNumber(FileRecordAudioMixer.CONFIG_SAMPLE_COUNT,mAudioItem.getSampleCount());
+                        config.setNumber(FileRecordAudioMixer.CONFIG_CHANNELS,mAudioItem.getChannels());
+                        config.setNumber(FileRecordAudioMixer.CONFIG_SAMPLE_RATE,mAudioItem.getSampleRate());
+                        mAudioMixer.open(config);
+
+                        TLog.e("current audio mixer item %s",mAudioItem);
+                        ThreadHelper.runThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                int channels = mAudioItem.getChannels() == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
+
+                                int bufferSize = AudioTrack.getMinBufferSize(mAudioItem.getSampleRate(),channels,AudioFormat.ENCODING_PCM_16BIT);
+
+                                AudioTrack audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, mAudioItem.getSampleRate(), channels, AudioFormat.ENCODING_PCM_16BIT, bufferSize, AudioTrack.MODE_STREAM);
+                                audioTrack.setVolume(1f);
+                                audioTrack.play();
+                                int length = 0;
+
+                                byte[] buffer = new byte[bufferSize];
+
+                                while (true){
+                                    int res = mAudioMixer.getPCMForPlay(buffer,bufferSize);
+                                    if (res == -2){
+                                        break;
+                                    } else if (res < 0){
+                                        continue;
+                                    }
+                                    TLog.e("getPCMForPlay -- 1 bufferSize %s res %s ",bufferSize,res);
+                                    length = audioTrack.write(buffer,0,bufferSize);
+                                    TLog.e("getPCMForPlay -- 2 result %s",length);
+                                }
+
+                                audioTrack.stop();
+                                audioTrack.release();
+                                audioTrack = null;
+                            }
+                        });
+                    }
+                });
+
+
+                break;
+            }
+        }
+    }
+
+    /**
+     * @param path
+     */
+    private void updateDoubleView(String path) {
+
+        RectF cameraRect = new RectF(0,0,1,1);
+        RectF videoRect = new RectF(0,0,1,1);
+
+        TuSdkSize videoSize = new  TuSdkSize();
+        long videoDuration = 0;
+
+        MediaInspector.MediaInfo mediaInfo = MediaInspector.shared().inspect(path);
+        for (MediaInspector.MediaInfo.AVItem item : mediaInfo.streams){
+            if (item instanceof MediaInspector.MediaInfo.Video){
+                videoSize.width = ((MediaInspector.MediaInfo.Video) item).width;
+                videoSize.height = ((MediaInspector.MediaInfo.Video) item).height;
+                videoDuration = item.duration;
+                break;
+            }
+        }
+        TuSdkSizeF videoSizePercent = new TuSdkSizeF();
+
+        switch (mRecordView.getCurrentDoubleViewMode()){
+            case None:
+                return;
+            case ViewInView:
+                videoRect.top = 0.1f;
+                videoRect.left = 0.1f;
+                if (videoSize.width > videoSize.height){
+                    float width = 0.5f;
+                    float height = mCurrentRenderSize.width * width * videoSize.minMaxRatio() / mCurrentRenderSize.height;
+                    videoRect.right = videoRect.left + width;
+                    videoRect.bottom = videoRect.top + height;
+                } else {
+                    float height = 0.3f;
+                    float width = mCurrentRenderSize.height * height * videoSize.minMaxRatio() / mCurrentRenderSize.width;
+                    videoRect.bottom = videoRect.top + height;
+                    videoRect.right = videoRect.left + width;
+                }
+
+                break;
+            case TopBottom:
+                int halfHeight = mCurrentRenderSize.height / 2;
+                cameraRect.left = 0.25f;
+                cameraRect.right = 0.75f;
+                cameraRect.top = 0.5f;
+                cameraRect.bottom = 1.0f;
+
+                if (videoSize.width > videoSize.height){
+                    float renderWidth = mCurrentRenderSize.width;
+                    float heightPercent = renderWidth * videoSize.minMaxRatio() / mCurrentRenderSize.height;
+
+                    videoRect.left = 0f;
+                    videoRect.right = 1f;
+                    videoRect.top = (0.5f - heightPercent) / 2f;
+                    videoRect.bottom = videoRect.top + heightPercent;
+
+
+                } else {
+                    float widthPercent = halfHeight * videoSize.minMaxRatio() / mCurrentRenderSize.width;
+
+                    videoRect.left = (1 - widthPercent) / 2f;
+                    videoRect.right = videoRect.left + widthPercent;
+
+                    videoRect.top = 0.0f;
+                    videoRect.bottom = 0.5f;
+
+                }
+                break;
+            case LeftRight:
+                cameraRect.left = 0f;
+                cameraRect.right = 0.5f;
+                cameraRect.top = 0.25f;
+                cameraRect.bottom = 0.75f;
+
+                if (videoSize.width > videoSize.height){
+                    float renderWidth = mCurrentRenderSize.width / 2f;
+                    float heightPercent = renderWidth * videoSize.minMaxRatio() / mCurrentRenderSize.height;
+
+                    videoRect.left = 0.5f;
+                    videoRect.right = 1.0f;
+                    videoRect.top = (1f - heightPercent) / 2f;
+                    videoRect.bottom = videoRect.top + heightPercent;
+
+
+                } else {
+                    videoRect.left = 0.5f;
+                    videoRect.right = 1f;
+
+                    int halfWidth = mCurrentRenderSize.width / 2;
+                    float heightPercent = halfWidth * videoSize.maxMinRatio() / mCurrentRenderSize.height;
+
+
+                    videoRect.top = (1 - heightPercent) / 2;
+                    videoRect.bottom = videoRect.top + heightPercent;
+
+                }
+                break;
         }
 
-        if (result < 0){
 
-        }
+        long finalVideoDuration = videoDuration;
+        mRenderPool.runAsync(new Runnable() {
+            @Override
+            public void run() {
+                mFP.deleteFilter(RecordView.DOUBLE_VIEW_INDEX);
 
-        return result;
+                Filter filter = new Filter(mFP.getContext(), SimultaneouslyFilter.TYPE_NAME);
+                Config config = new Config();
+                config.setNumber(SimultaneouslyFilter.CONFIG_WIDTH,mCurrentRenderSize.width);
+                config.setNumber(SimultaneouslyFilter.CONFIG_HEIGHT,mCurrentRenderSize.height);
+
+                config.setString(SimultaneouslyFilter.CONFIG_PATH,path);
+                config.setString(SimultaneouslyFilter.CONFIG_FIRST_LAYER,SimultaneouslyFilter.INDEX_CAMERA);
+                config.setNumber(SimultaneouslyFilter.CONFIG_STRETCH,mCurrentVideoStretch);
+                config.setNumber(SimultaneouslyFilter.CONFIG_FRAMERATE,30);
+
+                filter.setConfig(config);
+
+                mFP.addFilter(RecordView.DOUBLE_VIEW_INDEX,filter);
+
+                SimultaneouslyFilter.PropertyHolder holder = new SimultaneouslyFilter.PropertyHolder();
+                holder.video_dst_rect = videoRect;
+                holder.camera_dst_rect = cameraRect;
+                SimultaneouslyFilter.PropertyBuilder builder = new SimultaneouslyFilter.PropertyBuilder();
+                builder.holder = holder;
+                filter.setProperty(PROP_RECT_PARAM,builder.makeRectProperty());
+
+                holder.current_pos = (int) mCurrentPlayerPos;
+
+                filter.setProperty(PROP_SEEK_PARAM,builder.makeSeekProperty());
+
+            }
+        });
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (mVideoSelectView == null){
+                    mVideoSelectView = new ImageView(MovieRecordFullScreenActivity.this);
+                    mVideoSelectView.setImageResource(R.drawable.rhythm_ic_pic);
+                    mVideoSelectView.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            openAlbum();
+                        }
+                    });
+                    RelativeLayout.LayoutParams layoutParams = new RelativeLayout.LayoutParams(ContextUtils.dip2px(TuSdkContext.context(),24),ContextUtils.dip2px(TuSdkContext.context(),24));
+                    mRecordView.addView(mVideoSelectView,layoutParams);
+                }
+                RelativeLayout.LayoutParams layoutParams = (RelativeLayout.LayoutParams) mVideoSelectView.getLayoutParams();
+
+                int parentWidth = mRecordView.getWidth();
+                int parentHeight = mRecordView.getHeight();
+
+                int renderWidth = parentWidth;
+                int renderHeight = parentHeight;
+
+                int offsetY = 0;
+
+                float x = 0;
+                float y = 0;
+
+                if (mCurrentDuration>0){
+                    mVideoSelectView.setVisibility(View.GONE);
+                } else {
+                    mVideoSelectView.setVisibility(View.VISIBLE);
+                }
+
+
+                switch (mRecordView.getCurrentDoubleViewMode()){
+
+                    case None:
+                        mVideoSelectView.setVisibility(View.GONE);
+                        break;
+                    case ViewInView:
+                        x =  (parentWidth * videoRect.left + ContextUtils.dip2px(TuSdkContext.context(),8));
+                        y = offsetY + (renderHeight * videoRect.bottom - ContextUtils.dip2px(TuSdkContext.context(),8) - layoutParams.height);
+                        break;
+                    case TopBottom:
+                        x =  (parentWidth * videoRect.left + ContextUtils.dip2px(TuSdkContext.context(),8));
+                        y = offsetY + (renderHeight * videoRect.bottom - ContextUtils.dip2px(TuSdkContext.context(),8) - layoutParams.height);
+                        break;
+                    case LeftRight:
+                        x =  (parentWidth * videoRect.left + ContextUtils.dip2px(TuSdkContext.context(),8));
+                        y = offsetY + (renderHeight * videoRect.bottom - ContextUtils.dip2px(TuSdkContext.context(),8) - layoutParams.height);
+                        break;
+                }
+                mVideoSelectView.setX(x);
+                mVideoSelectView.setY(y);
+            }
+        });
+    }
+
+    private void openAlbum() {
+        Intent intent = new Intent(MovieRecordFullScreenActivity.this, AlbumActivity.class);
+        intent.putExtra("maxSize", 1);
+        intent.putExtra("onlyImage", false);
+        intent.putExtra("onlyVideo", true);
+        intent.putExtra("minSize", -1);
+        startActivityForResult(intent, ALBUM_REQUEST_CODE);
     }
 
     private double allAudioDuration = 0.0;
     private double currentAudioTime = 0.0;
 
-    private void queueRecording(){
-        final AudioRecord record = mAudioRecord;
-        final byte[] buffer = new byte[mBufferSize];
-
-        ThreadHelper.runThread(new Runnable() {
-            @Override
-            public void run() {
-                if (record == null || buffer == null || mFileRecorder == null) return;
-                while (record.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING){
-                    int total = read(record,buffer);
-                    if (isRecording){
-                        currentAudioTime = System.currentTimeMillis() - mRecordingStart;
-                        mFileRecorder.sendAudioData(buffer,total, (long) currentAudioTime);
-                        currentAudioTime *= mCurrentStretch;
-//                        TLog.e("Current Audio Time %s length %s buffer size %s",currentAudioTime,total,buffer.length);
-                    }
-                }
-
-                allAudioDuration += currentAudioTime;
-                TLog.e("Current Audio Time %s all %s",currentAudioTime,allAudioDuration);
-            }
-        });
-    }
-
-    private boolean startAudioRecording(){
-        if (mAudioRecord == null || mAudioRecord.getState() != AudioRecord.STATE_INITIALIZED)
-            return false;
-
-        try {
-            mAudioRecord.startRecording();
-            this.queueRecording();
-        } catch (Exception e){
-
-        }
-        return true;
-    }
-
     private void stopAudioRecording(){
-        if (mAudioRecord == null || mAudioRecord.getState() != AudioRecord.STATE_INITIALIZED)
+        if (mAudioRecord == null)
             return;
 
         try {
-            mAudioRecord.stop();
-            mAudioRecord.release();
-            mAudioRecord = null;
+            mAudioRecord.stopRecord();
         } catch (Exception e){
 
         }
@@ -298,9 +625,35 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             TLog.e("preview size %s",mInputSize.toString());
         }
 
+        private long lastTime = 0;
+        private long cameraLastTime = 0;
+
         @Override
         public void onFrameAvailable(SurfaceTexture surfaceTexture) {
-            onDrawFrame();
+            mRenderPool.runAsync(new Runnable() {
+                @Override
+                public void run() {
+                    onDrawFrame();
+                    long time = System.currentTimeMillis();
+                    long diff = time - lastTime;
+                    lastTime = time;
+                    TLog.e("draw diff : %s fps : %s",diff,1000.0/diff);
+                }
+            });
+//
+//
+            long time = System.currentTimeMillis();
+            long diff = time - cameraLastTime;
+            cameraLastTime = time;
+            TLog.e("camera diff : %s fps : %s",diff,1000.0/diff);
+//            mRenderPool.runAsync(new Runnable() {
+//                @Override
+//                public void run() {
+//                    mSurfaceTexture.updateTexImage();
+//
+//                }
+//            });
+
         }
     };
 
@@ -312,9 +665,12 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private boolean isRecordCompleted = false;
 
-    private boolean isNeedCreateTexture = false;
+    private boolean isNeedCreateTexture = true;
+
+    private Image mCurrentRes;
 
     private void onDrawFrame() {
+        TLog.fps("on draw frame");
 
         long startTime = System.currentTimeMillis();
 
@@ -322,110 +678,141 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         TuSdkSize inputSize = mCamera.cameraSize().previewOptimizeSize();
 
 
-        final TuSdkSize procSize = mRectSize == null ? TuSdkSize.create(720, (int) (720.0 / mCurrentRatio.getX() * mCurrentRatio.getY())) : mRectSize;
-
+        final TuSdkSize procSize = (mRectSize == null ? TuSdkSize.create(720, (int) (720.0 / mCurrentRatio.getX() * mCurrentRatio.getY())) : mRectSize).evenSize();
+        mCurrentRenderSize = procSize;
         StringBuilder log = new StringBuilder();
         log.append("渲染信息: \n");
 
-        Future<Image> res = mRenderPool.submit(new Callable<Image>() {
-            @Override
-            public Image call() throws Exception {
-                mSurfaceTexture.updateTexImage();
-                TuSdkSize size = inputSize.transforOrientation(mPreviewOrientation);
+        mSurfaceTexture.updateTexImage();
+        TuSdkSize size = inputSize.transforOrientation(mPreviewOrientation);
 
 //                TuCameraAspectRatio previewRatio = TuCameraAspectRatio.of(size.width,size.height);
 //                TuSdkSize finalProcSize = procSize;
 //                if (!previewRatio.equals(mCurrentRatio)){
 //                    finalProcSize = TuSdkSize.create(size.width ,size.width / mCurrentRatio.getX() * mCurrentRatio.getY());
 //                }
-                if (mTexture <0 || isNeedCreateTexture){
-                    int deleteTextureID = mTexture;
+        //FIXME: 没有释放时机
+        if (isNeedCreateTexture) {
+            GLES20.glGenTextures(mTexCount, mTextures, 0);
 
-                    int[] textures = new int[1];
-                    GLES20.glGenTextures(1, textures, 0);
-                    int textureID = textures[0];
+            for (int idx = 0; idx < mTexCount; idx++) {
 
-                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureID);
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextures[idx]);
 
-                    GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER,
-                            GLES20.GL_LINEAR);
-                    GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER,
-                            GLES20.GL_LINEAR);
-                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
-                            GLES20.GL_CLAMP_TO_EDGE);
-                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T,
-                            GLES20.GL_CLAMP_TO_EDGE);
-                    GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D,
-                            0,
-                            GLES20.GL_RGBA,
-                            procSize.width, procSize.height,
-                            0,
-                            GLES20.GL_RGBA,
-                            GLES20.GL_UNSIGNED_BYTE,
-                            null);
-
-                    mTexture = textureID;
-
-                    if (deleteTextureID != -1){
-                        int[] deleteTextures = new int[1];
-                        textures[0] = deleteTextureID;
-                        GLES20.glDeleteTextures(1,deleteTextures,0);
-                    }
+                GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER,
+                        GLES20.GL_LINEAR);
+                GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER,
+                        GLES20.GL_LINEAR);
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
+                        GLES20.GL_CLAMP_TO_EDGE);
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T,
+                        GLES20.GL_CLAMP_TO_EDGE);
+                GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D,
+                        0,
+                        GLES20.GL_RGBA,
+                        procSize.width, procSize.height,
+                        0,
+                        GLES20.GL_RGBA,
+                        GLES20.GL_UNSIGNED_BYTE,
+                        null);
+            }
+            isNeedCreateTexture = false;
+        }
+//        if (mTexture <0 || isNeedCreateTexture){
+//            int deleteTextureID = mTexture;
 //
-//                    GLES20.glFinish();
+//            int[] textures = new int[1];
+//            GLES20.glGenTextures(1, textures, 0);
+//            int textureID = textures[0];
+//
+//            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureID);
+//
+//            GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER,
+//                    GLES20.GL_LINEAR);
+//            GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER,
+//                    GLES20.GL_LINEAR);
+//            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
+//                    GLES20.GL_CLAMP_TO_EDGE);
+//            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T,
+//                    GLES20.GL_CLAMP_TO_EDGE);
+//            GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D,
+//                    0,
+//                    GLES20.GL_RGBA,
+//                    procSize.width, procSize.height,
+//                    0,
+//                    GLES20.GL_RGBA,
+//                    GLES20.GL_UNSIGNED_BYTE,
+//                    null);
+//
+//            mTexture = textureID;
+//
+//            if (deleteTextureID != -1){
+//                int[] deleteTextures = new int[1];
+//                textures[0] = deleteTextureID;
+//                GLES20.glDeleteTextures(1,deleteTextures,0);
+//            }
+////
+////                    GLES20.glFinish();
+//
+//            isNeedCreateTexture = false;
+//        }
 
-                    isNeedCreateTexture = false;
-                }
+        mTexture = mTextures[mTexIdx];
+        Log.e("DEBUG ", "zzzx call: " + cnt++ + ", tex: " + mTextures[mTexIdx] + ", idx: " + mTexIdx);
 
+        mTexIdx = (mTexIdx + 1) % mTexCount;
 
-                //Log.e("DEBUG ", "call: " + cnt++ );
-                int drawRes = mOutputSurface.drawImageTo(mTexture, size.width,size.height, procSize.width, procSize.height);
+        //GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTexture);
+
+        int drawRes = mOutputSurface.drawImageTo(mTexture, size.width,size.height, procSize.width, procSize.height);
 //                GLES20.glFinish();
-                long surfaceDrawDuration = System.currentTimeMillis() - startTime;
-                log.append("采集分辨率 : ").append(inputSize).append("\n");
-                log.append("渲染分辨率 : ").append(procSize).append(" \n");
-                log.append("OutputSurface 处理时长 : ").append(surfaceDrawDuration).append(" \n");
-                if (drawRes < 0) return null;
-                Image in = new Image(mTexture, procSize.width, procSize.height,System.currentTimeMillis());
+        long surfaceDrawDuration = System.currentTimeMillis() - startTime;
+        log.append("采集分辨率 : ").append(inputSize).append("\n");
+        log.append("渲染分辨率 : ").append(procSize).append(" \n");
+        log.append("OutputSurface 处理时长 : ").append(surfaceDrawDuration).append(" \n");
+        if (drawRes < 0) return;
+        long inputPos = System.currentTimeMillis();
+        Image in = new Image(mTexture, procSize.width, procSize.height,inputPos);
 //                Image in = new Image(testBitmap,System.currentTimeMillis());
 //                Bitmap bitmap = in.toBitmap();
-                double agree = mOrientationListener.getDeviceAngle() + InterfaceOrientation.Portrait.getDegree();
+        double agree = mOrientationListener.getDeviceAngle() + InterfaceOrientation.Portrait.getDegree();
 
-                boolean enableMarkSence = false;
-                if (mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.Reshape)) != null
-                        || mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.CosmeticFace)) != null){
+        boolean enableMarkSence = false;
+        if (mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.Reshape)) != null
+                || mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.CosmeticFace)) != null){
 
 
-                    enableMarkSence = mRecordView.checkEnableMarkSence();
-                }
+            enableMarkSence = mRecordView.checkEnableMarkSence();
+        }
 
-                TLog.e("enable check sence %s",enableMarkSence);
-                in.setMarkSenceEnable(enableMarkSence);
-                in.setAgree(agree);
-                frameCount ++;
-                Image out = mFP.process(in);
-                in.release();
-                long fpProcessDuration = System.currentTimeMillis() - startTime;
-                log.append("FilterPipe 处理时长 : ").append(fpProcessDuration).append(" \n");
-                log.append("degree : ").append(agree).append(" \n");
-//                TLog.e("output image %s",out);
-                return out;
-            }
-        });
+        TLog.e("enable check sence %s",enableMarkSence);
+        in.setMarkSenceEnable(enableMarkSence);
+        in.setAgree(agree);
+        frameCount ++;
+        Image out = mFP.process(in);
+        in.release();
+        long fpProcessDuration = System.currentTimeMillis() - startTime;
+        log.append("FilterPipe 处理时长 : ").append(fpProcessDuration).append(" \n");
+        log.append("degree : ").append(agree).append(" \n");
+
+        mCurrentRes = out;
         try {
-            Image out = res.get();
-            if (mCurrentPreviewRectF == null)
+            if (mCurrentPreviewRectF == null || mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX) != null)
                 mCameraView.updateImage(out);
             else mCameraView.updateImage(out,mCurrentPreviewRectF);
             long processDuration = System.currentTimeMillis() - startTime;
             log.append("当前帧渲染总时长 : ").append(processDuration).append("\n");
+//            double fps = 1000.0 / processDuration;
+//            log.append("当前渲染帧率 : ").append(fps).append("\n");
+            double fps = TLog.fps("fps");
+            log.append("当前渲染帧率 : ").append(fps).append("\n");
 
             if (mFileRecorder != null && isRecording){
-                mRecordPool.execute(new Runnable() {
+                mRecordPool.runAsync(new Runnable() {
                     @Override
                     public void run() {
                         if (mFileRecorder != null && isRecording){
-                            mCurrentFragmentDuration = System.currentTimeMillis() - mRecordingStart;
+                            mCurrentFragmentDuration = inputPos - mRecordingStart;
                             mFileRecorder.sendImage(out,mCurrentFragmentDuration);
                             mCurrentFragmentDuration *= mCurrentStretch;
                             TLog.e("Duration fragment : %s current : %s",mCurrentFragmentDuration,mCurrentDuration);
@@ -471,9 +858,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 double avg = processSum / (double)frameCount;
                 TLog.e("[Debug] Current Frame process Duration %s process duration average value %s frame count %s",processDuration,avg,frameCount);
             }
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -555,8 +940,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         } else {
             PermissionUtils.requestRequiredPermissions(this, getRequiredPermissions());
         }
-
-        testBitmap = BitmapHelper.getRawBitmap(MovieRecordFullScreenActivity.this,R.raw.lsq_filter_thumb_foodcaramel1);
     }
 
     private void init() {
@@ -584,28 +967,17 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             public void changedRect(RectF rectF) {
                 mCurrentPreviewRectF = rectF;
 
-                Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+                mRenderPool.runSync(new Runnable() {
                     @Override
-                    public Boolean call() throws Exception {
-
+                    public void run() {
                         TuSdkSize wrapSize = mRecordView.getWrapSize();
                         mRectSize = TuSdkSize.create(((int) (wrapSize.width * rectF.width())), ((int) (wrapSize.height * rectF.height())));
 
 //                        TuCameraAspectRatio ratio = TuCameraAspectRatio.of(((int) (rectF.width() * 1000)), ((int) (rectF.height() * 1000)));
 //                        mRectRatio = ratio;
                         isNeedCreateTexture = true;
-//                        TLog.e("current rect ratio %s rect %s",ratio,rectF);
-                        return isNeedCreateTexture;
                     }
                 });
-
-                try {
-                    res.get();
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
 
             }
 
@@ -617,7 +989,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                     return false;
                 }
 
-                mRecordPool.execute(new Runnable() {
+                mRecordPool.runAsync(new Runnable() {
                     @Override
                     public void run() {
                         if (mFileRecorder == null ) {
@@ -627,10 +999,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                             mCurrentFragment.path = outputFilePath;
                             mVideoLists.add(mCurrentFragment);
                             FileExporter.Config config = new FileExporter.Config();
-                            TuSdkSize size = mCamera.cameraSize().previewOptimizeSize().transforOrientation(mPreviewOrientation);
                             config.channels = 2;
-                            size.width = (int) (size.height / mCurrentRatio.getY() * mCurrentRatio.getX());
-                            size = size.evenSize();
+                            TuSdkSize size = mCurrentRenderSize.evenSize();
                             config.height = size.height;
                             config.width = size.width;
                             config.sampleRate = 44100;
@@ -639,20 +1009,36 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                             config.pitchType = mCurrentAudioEffect;
                             config.watermark = BitmapHelper.getRawBitmap(MovieRecordFullScreenActivity.this,R.raw.sample_watermark);
                             config.watermarkPosition = 1;
-                            mFileRecorder.open(config);
+                            boolean res = mFileRecorder.open(config);
+                            if (!res){
+                                return;
+                            }
+
                         }
+                        if (!TextUtils.isEmpty(mCurrentAudioPath)) mAudioRecord.initAudioMixer(mCurrentAudioPath,mCurrentPlayerPos);
                         if (mRecordingStart == 0 )mRecordingStart = System.currentTimeMillis();
-                        if (mAudioRecord == null) {
-                            initRecorder();
-                            startAudioRecording();
-                        }
+
+
+                        mAudioRecord.startRecord(mFileRecorder);
                         isRecording = true;
+
+                        mRenderPool.runSync(new Runnable() {
+                            @Override
+                            public void run() {
+                                Filter filter = mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX);
+                                if (filter == null) return;
+                                siBuilder.holder.enable_play = true;
+                                filter.setProperty(SimultaneouslyFilter.PROP_PARAM,siBuilder.makeProperty());
+                            }
+                        });
 
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
                                 mRecordView.updateMovieRecordState(RecordView.RecordState.Recording,isRecording);
                                 isRecordCompleted = false;
+                                if (mVideoSelectView != null)
+                                    mVideoSelectView.setVisibility(View.GONE);
                             }
                         });
                     }
@@ -667,19 +1053,34 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
             @Override
             public void pauseRecording() {
-                mRecordPool.execute(new Runnable() {
+                mRecordPool.runAsync(new Runnable() {
                     @Override
                     public void run() {
                         isRecording = false;
                         stopAudioRecording();
                         if (mFileRecorder != null)
                             mFileRecorder.close();
+
+                        mAudioRecord.resetAudioMixer();
+
                         mCurrentFragment.fragmentDuration = mCurrentFragmentDuration;
                         mFileRecorder = null;
                         mRecordingStart = 0L;
                         mCurrentDuration += mCurrentFragmentDuration;
 
                         mCurrentFragmentDuration = 0L;
+
+                        mCurrentPlayerPos = mCurrentDuration;
+
+                        mRenderPool.runSync(new Runnable() {
+                            @Override
+                            public void run() {
+                                Filter filter = mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX);
+                                if (filter == null) return;
+                                siBuilder.holder.enable_play = false;
+                                filter.setProperty(SimultaneouslyFilter.PROP_PARAM,siBuilder.makeProperty());
+                            }
+                        });
 
                         runOnUiThread(new Runnable() {
                             @Override
@@ -692,13 +1093,25 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             }
 
             @Override
-            public void stopRecording() {
+            public boolean stopRecording() {
                 TLog.e("Duration fragment : %s current : %s",mCurrentFragmentDuration,mCurrentDuration);
                 TLog.e("Current Audio Time %s all %s",currentAudioTime,allAudioDuration);
-                mRecordPool.execute(new Runnable() {
+                if (mCurrentDuration < Constants.MIN_RECORDING_TIME * 1000 * mCurrentStretch){
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            String msg = getString(R.string.lsq_record_time_invalid);
+                            Toast.makeText(MovieRecordFullScreenActivity.this, msg, Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                    return false;
+                }
+
+                mRecordPool.runAsync(new Runnable() {
                     @Override
                     public void run() {
                         String outputPath = getOutputPath();
+                        String tempPath = getTempOutputPath();
                         if (mVideoLists.size() > 1){
                             runOnUiThread(new Runnable() {
                                 @Override
@@ -708,9 +1121,70 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                             });
                             String[] paths = new String[mVideoLists.size()];
                             for (int i =0;i<mVideoLists.size();i++) paths[i] = mVideoLists.get(i).path;
-                            FileExporter.MergeVideoFiles(outputPath, paths);
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q){
+                                FileExporter.MergeVideoFiles(tempPath, paths);
+                                long now = TuSdkDate.create().getTimeInMillis();
+                                ContentValues values = new ContentValues();
+                                values.put(MediaStore.Images.Media.DATE_TAKEN, now);
+                                values.put(MediaStore.Images.Media.DATE_MODIFIED, now / 1000);
+                                values.put(MediaStore.Images.Media.DATE_ADDED, now / 1000);
+                                values.put(MediaStore.Images.Media.DISPLAY_NAME,outputPath.substring(outputPath.lastIndexOf("/")));
+                                values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+                                values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                                Uri uri = TuSdkContext.context().getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+                                try {
+                                    OutputStream outputStream = TuSdkContext.context().getContentResolver().openOutputStream(uri);
+                                    File cacheFile = new File(tempPath);
+                                    InputStream stream = FileHelper.getFileInputStream(cacheFile);
+                                    FileHelper.copy(stream,outputStream);
+                                    FileHelper.safeClose(stream);
+                                    FileHelper.safeClose(outputStream);
+                                    values.clear();
+                                    values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                                    TuSdkContext.context().getContentResolver().update(uri, values, null, null);
+                                } catch (FileNotFoundException e) {
+                                    e.printStackTrace();
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                            } else {
+                                FileExporter.MergeVideoFiles(outputPath, paths);
+                            }
+
+
                         } else {
-                            FileHelper.rename(new File(mVideoLists.get(0).path),new File(outputPath));
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q){
+                                long now = TuSdkDate.create().getTimeInMillis();
+                                ContentValues values = new ContentValues();
+                                values.put(MediaStore.Images.Media.DATE_TAKEN, now);
+                                values.put(MediaStore.Images.Media.DATE_MODIFIED, now / 1000);
+                                values.put(MediaStore.Images.Media.DATE_ADDED, now / 1000);
+                                values.put(MediaStore.Images.Media.DISPLAY_NAME,outputPath.substring(outputPath.lastIndexOf("/")));
+                                values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+                                values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                                Uri uri = TuSdkContext.context().getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+                                try {
+                                    OutputStream outputStream = TuSdkContext.context().getContentResolver().openOutputStream(uri);
+                                    File cacheFile = new File(mVideoLists.get(0).path);
+                                    InputStream stream = FileHelper.getFileInputStream(cacheFile);
+                                    FileHelper.copy(stream,outputStream);
+                                    FileHelper.safeClose(stream);
+                                    FileHelper.safeClose(outputStream);
+                                    values.clear();
+                                    values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                                    TuSdkContext.context().getContentResolver().update(uri, values, null, null);
+                                } catch (FileNotFoundException e) {
+                                    e.printStackTrace();
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                            } else {
+                                boolean renameSuccess = FileHelper.rename(new File(mVideoLists.get(0).path),new File(outputPath));
+                                TLog.e("file rename %s to %s is success %s",mVideoLists.get(0).path,outputPath,renameSuccess);
+                            }
+
+
+
 //                    FileHelper.delete(new File(mVideoLists.get(0).path));
                         }
 
@@ -722,16 +1196,29 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                                 intent.setData(uri);
                                 sendBroadcast(intent);
                                 mRecordView.updateMovieRecordState(RecordView.RecordState.SaveCompleted,isRecording);
-
+                                if (mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX) != null){
+                                    mVideoSelectView.setVisibility(View.VISIBLE);
+                                }
                             }
                         });
                         mVideoLists.clear();
                         mCurrentDuration = 0;
                         allAudioDuration = 0;
+                        mCurrentPlayerPos = 0;
                     }
                 });
 
+                mRenderPool.runSync(new Runnable() {
+                    @Override
+                    public void run() {
+                        Filter filter = mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX);
+                        if (filter == null) return;
+                        siBuilder.holder.current_pos = 0;
+                        filter.setProperty(PROP_SEEK_PARAM,siBuilder.makeSeekProperty());
+                    }
+                });
 
+                return true;
             }
 
             @Override
@@ -746,15 +1233,39 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
             @Override
             public void changedSpeed(double speed) {
+                TLog.e("current stretch %s",speed);
                 mCurrentStretch = speed;
+                if (mCurrentStretch == 2.0){
+                    mCurrentVideoStretch = 0.5;
+                } else if (mCurrentStretch == 1.5){
+                    mCurrentVideoStretch = 0.75;
+                } else if (mCurrentStretch == 0.75){
+                    mCurrentVideoStretch = 1.5;
+                } else if (mCurrentStretch == 0.5){
+                    mCurrentVideoStretch = 2.0;
+                } else {
+                    mCurrentVideoStretch = mCurrentStretch;
+                }
+
+                mRenderPool.runSync(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX) != null){
+                            updateDoubleView(mCurrentDoubleViewVideoPath);
+                        }
+                    }
+                });
+
+                mAudioRecord.updateAudioStretch(mCurrentVideoStretch);
 //                CURRENT_MAX_RECORD_DURATION = (long) (MAX_RECORD_DURATION / speed);
             }
 
             @Override
             public void changedRatio(TuSdkSize ratio) {
-                Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+
+                mRenderPool.runSync(new Runnable() {
                     @Override
-                    public Boolean call() throws Exception {
+                    public void run() {
                         TuCameraAspectRatio currentRatio = TuCameraAspectRatio.of(ratio.width,ratio.height);
                         if (!currentRatio.equals(mCurrentRatio)){
                             mCurrentRatio = currentRatio;
@@ -764,17 +1275,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
                             isNeedCreateTexture = true;
                         }
-                        return true;
                     }
                 });
-
-                try {
-                    res.get();
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
             }
 
             @Override
@@ -789,6 +1291,93 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 mCurrentDuration -= item.fragmentDuration;
                 mVideoLists.remove(item);
                 isRecordCompleted = false;
+                mCurrentPlayerPos = mCurrentDuration;
+
+                mRenderPool.runSync(new Runnable() {
+                    @Override
+                    public void run() {
+                        Filter filter = mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX);
+                        if (filter == null) {
+                            if (mCurrentDuration == 0){
+                                runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        mRecordView.updateAudioNameState(View.VISIBLE);
+                                    }
+                                });
+                            }
+                            return;
+                        }
+                        siBuilder.holder.current_pos = (int) mCurrentDuration;
+                        filter.setProperty(PROP_SEEK_PARAM,siBuilder.makeSeekProperty());
+                        if (mVideoLists.isEmpty()){
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    mVideoSelectView.setVisibility(View.VISIBLE);
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void selectVideo() {
+                openAlbum();
+
+            }
+
+            @Override
+            public void updateDoubleViewMode(RecordView.DoubleViewMode mode) {
+                if (mode == RecordView.DoubleViewMode.None){
+                    mRenderPool.runSync(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX) != null){
+                                mFP.deleteFilter(RecordView.DOUBLE_VIEW_INDEX);
+                                mCurrentAudioPath = "";
+                                CURRENT_MAX_RECORD_DURATION = 15000;
+                                MAX_RECORD_DURATION = 15000;
+                                runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        mRecordView.updateMinPosition(Constants.MIN_RECORDING_TIME / 15.f);
+                                    }
+                                });
+                            }
+
+                        }
+                    });
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (mVideoSelectView != null)
+                                mVideoSelectView.setVisibility(View.GONE);
+                        }
+                    });
+                } else {
+                    if (!TextUtils.isEmpty(mCurrentDoubleViewVideoPath)){
+                        if (mCurrentMode == mode) return;
+                        mCurrentMode = mode;
+                        updateDoubleView(mCurrentDoubleViewVideoPath);
+                    }
+
+                }
+
+
+
+            }
+
+            @Override
+            public void selectAudio() {
+                Intent intent = new Intent(MovieRecordFullScreenActivity.this, AudioListActivity.class);
+                startActivityForResult(intent,AUDIO_REQUEST_CODE);
+            }
+
+            @Override
+            public void updateMicState(boolean isOpen) {
+                if (mAudioRecord != null) mAudioRecord.updateMicState(isOpen);
             }
         });
 
@@ -796,9 +1385,10 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
     }
 
     private void initFilterPipe() {
-        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
+
+        mRenderPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 mGLCtx = new GLContext();
 
                 mGLCtx.createForRender(Engine.getInstance().getMainGLContext().getEGLContext());
@@ -812,28 +1402,17 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 mFP = new FilterPipe();
 
                 isInitSuccess = mFP.create();
-
-                return isInitSuccess;
             }
         });
 
-        Future<Boolean> recordRes = mRecordPool.submit(new Callable<Boolean>() {
+        mRecordPool.runSync(new Runnable() {
             @Override
-            public Boolean call() throws Exception {
+            public void run() {
                 mGLCtx.makeCurrent();
-                return true;
+
+                mAudioRecord = new AudioRecord();
             }
         });
-
-
-        try {
-            res.get();
-            recordRes.get();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
     }
 
     private void initCamera() {
@@ -864,9 +1443,39 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 //            @Override
 //            public void onPreviewFrame(byte[] data, Camera camera) {
 //
-//                byte[] cloneDate = data.clone();
+//                Log.e("ss", "setPreviewCallback onPreviewFrame  ");
 //
-//                // todo
+//                if (mFP != null){
+//                    Camera.Size size = camera.getParameters().getPreviewSize();
+//                    Log.e("ss", "setPreviewCallback onPreviewFrame "+ size.width + "x" + size.height);
+//
+//                    // front rotation == -90 isflip == true
+//                    // back rotation == 90 isflip == false
+//
+//
+//                    mFP.updateDetectBuffer(data,size.width,size.height,size.width,-90);
+//                }
+//
+//                camera.addCallbackBuffer(data);
+//            }
+//        });
+
+//        mCamera.setPreviewCallback(new Camera.PreviewCallback() {
+//            @Override
+//            public void onPreviewFrame(byte[] data, Camera camera) {
+//
+//                Log.e("ss", "setPreviewCallback onPreviewFrame  ");
+//
+//                if (mFP != null){
+//                    Camera.Size size = camera.getParameters().getPreviewSize();
+//                    Log.e("ss", "setPreviewCallback onPreviewFrame "+ size.width + "x" + size.height);
+//
+//                    // front rotation == -90 isflip == true
+//                    // back rotation == 90 isflip == false
+//
+//
+//                    mFP.updateDetectBuffer(data,size.width,size.height,size.width,-90);
+//                }
 //
 //                camera.addCallbackBuffer(data);
 //            }
@@ -910,17 +1519,26 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 super.onCameraShotBitmap(data);
                 data.image = BitmapHelper.imageCorpResize(data.image,TuSdkSize.create(720,720 / mCurrentRatio.getX() * mCurrentRatio.getY()),ImageOrientation.Up,false);
 
-                Future<Bitmap> res = mRenderPool.submit(new Callable<Bitmap>() {
+                mRenderPool.runSync(new Runnable() {
                     @Override
-                    public Bitmap call() throws Exception {
+                    public void run() {
                         Image input = new Image(data.image,System.currentTimeMillis());
+
+                        boolean enableMarkSence = false;
+                        if (mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.Reshape)) != null
+                                || mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.CosmeticFace)) != null){
+                            enableMarkSence = mRecordView.checkEnableMarkSence();
+                        }
+                        input.setMarkSenceEnable(enableMarkSence);
+                        double agree = mOrientationListener.getDeviceAngle() + InterfaceOrientation.Portrait.getDegree();
+                        input.setAgree(agree);
                         Image output = mFP.process(input);
-                        return output.toBitmap();
+                        mShotPhoto = output.toBitmap();
                     }
                 });
 
                 try {
-                    Bitmap photo = res.get();
+                    Bitmap photo = mShotPhoto;
                     Bitmap waterMark = BitmapHelper.getRawBitmap(MovieRecordFullScreenActivity.this,R.raw.sample_watermark);
 
                     int margin = ContextUtils.dip2px(MovieRecordFullScreenActivity.this, 6);
@@ -945,13 +1563,13 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                     data.image = newb;
 
                     mRecordView.presentPreviewLayout(data);
-                } catch (ExecutionException e) {
-                    e.printStackTrace();
-                } catch (InterruptedException e) {
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
         });
+
+
     }
 
     @Override
@@ -970,6 +1588,15 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (mAudioRecord != null) mAudioRecord.release();
+        mRenderPool.runSync(new Runnable() {
+            @Override
+            public void run() {
+                mCameraView.release();
+                mFP.clearFilters();
+                mFP.destroy();
+                Engine.getInstance().release();
+            }
+        });
     }
 
     private void startCameraCapture(){

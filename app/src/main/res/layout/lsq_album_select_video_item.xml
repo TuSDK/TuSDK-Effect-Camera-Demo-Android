@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="90dp"
+    android:layout_height="90dp"
+    android:layout_marginLeft="2dp"
+    android:layout_marginRight="2dp"
+    android:layout_marginBottom="4dp"
+    android:orientation="vertical">
+
+    <ImageView
+        android:id="@+id/lsq_video_thumb_view"
+        android:layout_width="90dp"
+        android:layout_height="90dp"
+        android:background="@color/lsq_color_black"
+        android:scaleType="centerCrop" />
+
+    <TextView
+        android:id="@+id/lsq_movie_time"
+        android:layout_width="match_parent"
+        android:layout_height="20dp"
+        android:layout_alignParentBottom="true"
+        android:background="@color/lsq_alpha_black_66"
+        android:gravity="right"
+        android:paddingRight="@dimen/lsq__space_5"
+        android:textColor="@color/lsq_color_white"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/lsq_video_sel"
+        android:visibility="gone"
+        android:gravity="center"
+        android:text="1"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="4dp"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:background="@drawable/circle_bg"
+        android:textColor="@color/lsq_color_white"
+        android:textSize="12sp" />
+
+</RelativeLayout>
