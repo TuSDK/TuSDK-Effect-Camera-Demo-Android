@@ -44,6 +44,7 @@ import androidx.viewpager2.widget.ViewPager2;
 
 import com.tusdk.pulse.Config;
 import com.tusdk.pulse.DispatchQueue;
+import com.tusdk.pulse.audio.processors.AudioPitchProcessor;
 import com.tusdk.pulse.filter.Filter;
 import com.tusdk.pulse.filter.FilterDisplayView;
 import com.tusdk.pulse.filter.FilterPipe;
@@ -138,14 +139,16 @@ public class RecordView extends RelativeLayout {
     public final static int DOUBLE_VIEW_INDEX = 50;
 
     static {
-        mFilterMap.put(SelesParameters.FilterModel.Filter, 11);
-        mFilterMap.put(SelesParameters.FilterModel.SkinFace, 12);
+
 
         mFilterMap.put(SelesParameters.FilterModel.Reshape, 13);
         mFilterMap.put(SelesParameters.FilterModel.CosmeticFace, 14);
         mFilterMap.put(SelesParameters.FilterModel.MonsterFace, 15);
         mFilterMap.put(SelesParameters.FilterModel.PlasticFace, 16);
         mFilterMap.put(SelesParameters.FilterModel.StickerFace, 17);
+        mFilterMap.put(SelesParameters.FilterModel.SkinFace, 18);
+        mFilterMap.put(SelesParameters.FilterModel.Filter, 19);
+
 
     }
 
@@ -208,7 +211,7 @@ public class RecordView extends RelativeLayout {
          */
         void finishRecordActivity();
 
-        void changedAudioEffect(int effect);
+        void changedAudioEffect(String effect);
 
         void changedSpeed(double speed);
 
@@ -718,7 +721,7 @@ public class RecordView extends RelativeLayout {
 
         initPlastic();
 
-        switchConfigSkin(Constants.SkinMode.Beauty);
+        switchConfigSkin(Constants.SkinMode.SkinMoist);
     }
 
 
@@ -870,23 +873,23 @@ public class RecordView extends RelativeLayout {
         public void onCheckedChanged(RadioGroup group, int checkedId) {
             switch (checkedId) {
                 case R.id.lsq_audio_normal:
-                    getDelegate().changedAudioEffect(PITCH_TYPE_Normal);
+                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_NORMAL);
                     // 正常
                     break;
                 case R.id.lsq_audio_monster:
-                    getDelegate().changedAudioEffect(PITCH_TYPE_Monster);
+                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_MONSTER);
                     // 怪兽
                     break;
                 case R.id.lsq_audio_uncle:
-                    getDelegate().changedAudioEffect(PITCH_TYPE_Uncle);
+                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_UNCLE);
                     // 大叔
                     break;
                 case R.id.lsq_audio_girl:
-                    getDelegate().changedAudioEffect(PITCH_TYPE_Girl);
+                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_GIRL);
                     // 女生
                     break;
                 case R.id.lsq_audio_lolita:
-                    getDelegate().changedAudioEffect(PITCH_TYPE_Lolita);
+                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_LOLITA);
                     // 萝莉
                     break;
             }
@@ -2252,7 +2255,11 @@ public class RecordView extends RelativeLayout {
         mRenderPool.runSync(new Runnable() {
             @Override
             public void run() {
-                mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace));
+                Filter filter = mFP.getFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace));
+                if (filter != null){
+                    mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace));
+                    filter.release();
+                }
                 SelesParameters selesParameters = new SelesParameters();
                 selesParameters.appendFloatArg("whitening", 0.3f);
                 selesParameters.appendFloatArg("smoothing", 0.8f);
@@ -3112,7 +3119,7 @@ public class RecordView extends RelativeLayout {
                 mRadio1_1.setImageResource(R.drawable.lsq_video_popup_ic_scale_square);
                 mRadio3_4.setImageResource(R.drawable.lsq_video_popup_ic_scale_3_4_selected);
                 mRadioFull.setImageResource(R.drawable.lsq_video_popup_ic_scale_full);
-                switchCameraRatio(new Point(3, 4));
+                switchCameraRatio(new Point(9,  16));
                 break;
             case RatioType.ratio_orgin:
                 mRadio1_1.setImageResource(R.drawable.lsq_video_popup_ic_scale_square);

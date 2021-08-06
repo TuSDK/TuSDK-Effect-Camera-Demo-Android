@@ -14,6 +14,11 @@ import android.media.*
 import android.media.AudioRecord
 import com.tusdk.pulse.Config
 import com.tusdk.pulse.MediaInspector
+import com.tusdk.pulse.audio.AudioPipe
+import com.tusdk.pulse.audio.AudioProcessor
+import com.tusdk.pulse.audio.AudioSamples
+import com.tusdk.pulse.audio.processors.AudioPitchProcessor
+import com.tusdk.pulse.audio.processors.AudioStretchProcessor
 import com.tusdk.pulse.filter.FileExporter
 import com.tusdk.pulse.filter.FileRecordAudioMixer
 import org.lasque.tusdkpulse.core.utils.TLog
@@ -63,15 +68,15 @@ class AudioRecord {
             while (mAudioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING){
                 val buffer = ByteArray(mBufferSize)
                 val total = read(record,buffer)
+                TLog.e("record read total %s",total)
                 val currentAudioTime = System.currentTimeMillis() - mRecordingStart
-                val audioItem = AudioItem(buffer,total,currentAudioTime)
-                if (isNeedMixer){
-                    val res = mAudioMixer?.sendPrimaryAudio(audioItem.buffer,audioItem.length)
-                    if (res == -4){
-                        break;
-                    }
-                } else {
-                    mOutputQueue.put(audioItem)
+                if (total< 4096){
+                    buffer.fill(0,total,4095)
+                }
+
+                val audioSamples = AudioSamples(buffer,4096,2,44100,currentAudioTime)
+                if (audioSamples.isInit){
+                    mAudioPipe.sendAudioSamples(audioSamples)
                 }
             }
         } else {
@@ -101,11 +106,33 @@ class AudioRecord {
 
     }
 
+    private val mPipeRunnable = Runnable {
+        while (!needStopPipeThread){
+            val bufferSize = 4096
+            val buffer = ByteArray(bufferSize)
+            val ret = mAudioPipe.receiveAudioSamples(buffer,bufferSize)
+            if (ret){
+                val currentAudioTime = System.currentTimeMillis() - mRecordingStart
+                val audioItem = AudioItem(buffer,bufferSize,currentAudioTime)
+                if (isNeedMixer){
+                    val res = mAudioMixer?.sendPrimaryAudio(audioItem.buffer,audioItem.length)
+                    if (res == -4){
+                        break
+                    }
+                } else {
+                    mOutputQueue.put(audioItem)
+                }
+            }
+        }
+    }
+
     private var mCurrentStretch = 1
 
     private var allAudioDuration = 0L
 
     private var mRecordThread : Thread = Thread(mRecordRunnable)
+
+    private var mPipeThread : Thread = Thread(mPipeRunnable)
 
     private var mAudioRecord : AudioRecord? = null
 
@@ -124,6 +151,39 @@ class AudioRecord {
     private var isStopRecord = false;
 
     private var mAudioStretch = 1.0
+
+    // ------------------ AudioPipe -------------------------------
+
+    private var mAudioPipe : AudioPipe;
+
+    final private val PITCH_INDEX = 10
+    final private val STRETCH_INDEX = 20
+
+
+    private var needStopPipeThread = false
+
+    constructor(){
+        mAudioPipe = AudioPipe()
+        val config = AudioPipe.Config()
+        config.channels = 2
+        config.sampleRate = 44100
+
+        val res = mAudioPipe.create(config)
+
+        val audioPitchProcessor = AudioProcessor(mAudioPipe.context,AudioPitchProcessor.TYPE_NAME)
+        val pitchConfig = Config()
+        pitchConfig.setString(AudioPitchProcessor.CONFIG_PITCH_TYPE,AudioPitchProcessor.TYPE_NORMAL)
+        audioPitchProcessor.setConfig(pitchConfig)
+        mAudioPipe.addProcessor(PITCH_INDEX,audioPitchProcessor)
+
+        val audioStretchProcessor = AudioProcessor(mAudioPipe.context,AudioStretchProcessor.TYPE_NAME)
+        val stretchConfig = Config()
+        stretchConfig.setNumber(AudioStretchProcessor.CONFIG_STRETCH,mAudioStretch)
+        audioStretchProcessor.setConfig(stretchConfig)
+        mAudioPipe.addProcessor(STRETCH_INDEX,audioStretchProcessor)
+    }
+
+
 
     private var mMixerRunnable = Runnable {
         while (mAudioMixer != null){
@@ -176,7 +236,24 @@ class AudioRecord {
     }
 
     public fun updateAudioStretch(audioStretch : Double){
-        mAudioStretch = audioStretch
+//        mAudioStretch = audioStretch
+
+        mAudioPipe.deleteProcessor(STRETCH_INDEX)
+        val stretchProcessor = AudioProcessor(mAudioPipe.context,AudioStretchProcessor.TYPE_NAME)
+        val config = Config()
+        config.setNumber(AudioStretchProcessor.CONFIG_STRETCH,audioStretch)
+        stretchProcessor.setConfig(config)
+        mAudioPipe.addProcessor(STRETCH_INDEX,stretchProcessor)
+    }
+
+    public fun updateAudioPitch(type : String){
+        mAudioPipe.deleteProcessor(PITCH_INDEX)
+        val pitchProcessor = AudioProcessor(mAudioPipe.context,AudioPitchProcessor.TYPE_NAME)
+        val config = Config()
+        config.setString(AudioPitchProcessor.CONFIG_PITCH_TYPE,type)
+        pitchProcessor.setConfig(config)
+        mAudioPipe.addProcessor(PITCH_INDEX,pitchProcessor)
+
     }
 
     public fun startRecord(fileExporter: FileExporter){
@@ -188,7 +265,12 @@ class AudioRecord {
             } else {
                 isStopRecord = false
             }
+
+            needStopPipeThread = false
+
             mRecordThread = ThreadHelper.runThread(mRecordRunnable)
+            mPipeThread = ThreadHelper.runThread(mPipeRunnable)
+
             if (isNeedMixer){
                 mMixerThread = ThreadHelper.runThread(mMixerRunnable)
             }
@@ -211,6 +293,10 @@ class AudioRecord {
             isStopRecord = true
             TLog.e("stop record --- 1")
         }
+
+        mOutputQueue.clear()
+
+        needStopPipeThread = true
 
         mRecordThread.interrupt();
         mMixerThread.interrupt();

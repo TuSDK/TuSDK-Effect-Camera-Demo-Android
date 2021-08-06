@@ -70,7 +70,6 @@ import org.lasque.tusdkpulse.core.struct.TuSdkSizeF;
 import org.lasque.tusdkpulse.core.struct.ViewSize;
 import org.lasque.tusdkpulse.core.utils.ContextUtils;
 import org.lasque.tusdkpulse.core.utils.FileHelper;
-import org.lasque.tusdkpulse.core.utils.TLog;
 import org.lasque.tusdkpulse.core.utils.ThreadHelper;
 import org.lasque.tusdkpulse.core.utils.TuSdkDate;
 import org.lasque.tusdkpulse.core.utils.hardware.CameraConfigs;
@@ -330,7 +329,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                         config.setNumber(FileRecordAudioMixer.CONFIG_SAMPLE_RATE,mAudioItem.getSampleRate());
                         mAudioMixer.open(config);
 
-                        TLog.e("current audio mixer item %s",mAudioItem);
                         ThreadHelper.runThread(new Runnable() {
                             @Override
                             public void run() {
@@ -352,9 +350,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                                     } else if (res < 0){
                                         continue;
                                     }
-                                    TLog.e("getPCMForPlay -- 1 bufferSize %s res %s ",bufferSize,res);
                                     length = audioTrack.write(buffer,0,bufferSize);
-                                    TLog.e("getPCMForPlay -- 2 result %s",length);
                                 }
 
                                 audioTrack.stop();
@@ -622,7 +618,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             mInputSize = previewOptimizeSize;
             mRecordView.setDisplaySize(mInputSize.width,mInputSize.height);
 
-            TLog.e("preview size %s",mInputSize.toString());
         }
 
         private long lastTime = 0;
@@ -637,7 +632,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                     long time = System.currentTimeMillis();
                     long diff = time - lastTime;
                     lastTime = time;
-                    TLog.e("draw diff : %s fps : %s",diff,1000.0/diff);
                 }
             });
 //
@@ -645,7 +639,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             long time = System.currentTimeMillis();
             long diff = time - cameraLastTime;
             cameraLastTime = time;
-            TLog.e("camera diff : %s fps : %s",diff,1000.0/diff);
 //            mRenderPool.runAsync(new Runnable() {
 //                @Override
 //                public void run() {
@@ -670,7 +663,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
     private Image mCurrentRes;
 
     private void onDrawFrame() {
-        TLog.fps("on draw frame");
 
         long startTime = System.currentTimeMillis();
 
@@ -785,7 +777,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             enableMarkSence = mRecordView.checkEnableMarkSence();
         }
 
-        TLog.e("enable check sence %s",enableMarkSence);
         in.setMarkSenceEnable(enableMarkSence);
         in.setAgree(agree);
         frameCount ++;
@@ -804,8 +795,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             log.append("当前帧渲染总时长 : ").append(processDuration).append("\n");
 //            double fps = 1000.0 / processDuration;
 //            log.append("当前渲染帧率 : ").append(fps).append("\n");
-            double fps = TLog.fps("fps");
-            log.append("当前渲染帧率 : ").append(fps).append("\n");
+//            log.append("当前渲染帧率 : ").append(fps).append("\n");
 
             if (mFileRecorder != null && isRecording){
                 mRecordPool.runAsync(new Runnable() {
@@ -813,9 +803,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                     public void run() {
                         if (mFileRecorder != null && isRecording){
                             mCurrentFragmentDuration = inputPos - mRecordingStart;
-                            mFileRecorder.sendImage(out,mCurrentFragmentDuration);
                             mCurrentFragmentDuration *= mCurrentStretch;
-                            TLog.e("Duration fragment : %s current : %s",mCurrentFragmentDuration,mCurrentDuration);
+                            mFileRecorder.sendImage(out,mCurrentFragmentDuration);
                             float progress = (mCurrentFragmentDuration + mCurrentDuration) / (float) CURRENT_MAX_RECORD_DURATION;
                             if (progress > 1){
                                 if (!isRecordCompleted){
@@ -837,7 +826,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                                 });
 
                             }
-                            TLog.e("end send image");
                         }
 
                         out.release();
@@ -856,7 +844,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             processSum += processDuration;
             if (frameCount % 150 == 0){
                 double avg = processSum / (double)frameCount;
-                TLog.e("[Debug] Current Frame process Duration %s process duration average value %s frame count %s",processDuration,avg,frameCount);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -885,7 +872,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
                         startCameraCapture();
                         while (!mCameraView.isAvailable()){
-                            TLog.e("wait camera view");
                         }
                         mCameraView.onSurfaceTextureAvailable(mCameraView.getSurfaceTexture(),mCameraView.getWidth(),mCameraView.getHeight());
                     }
@@ -1004,7 +990,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                             config.height = size.height;
                             config.width = size.width;
                             config.sampleRate = 44100;
-                            config.stretch = mCurrentStretch;
+//                            config.stretch = mCurrentStretch;
                             config.savePath = outputFilePath;
                             config.pitchType = mCurrentAudioEffect;
                             config.watermark = BitmapHelper.getRawBitmap(MovieRecordFullScreenActivity.this,R.raw.sample_watermark);
@@ -1094,8 +1080,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
             @Override
             public boolean stopRecording() {
-                TLog.e("Duration fragment : %s current : %s",mCurrentFragmentDuration,mCurrentDuration);
-                TLog.e("Current Audio Time %s all %s",currentAudioTime,allAudioDuration);
                 if (mCurrentDuration < Constants.MIN_RECORDING_TIME * 1000 * mCurrentStretch){
                     runOnUiThread(new Runnable() {
                         @Override
@@ -1144,8 +1128,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                                     TuSdkContext.context().getContentResolver().update(uri, values, null, null);
                                 } catch (FileNotFoundException e) {
                                     e.printStackTrace();
-                                } catch (IOException e) {
-                                    e.printStackTrace();
                                 }
                             } else {
                                 FileExporter.MergeVideoFiles(outputPath, paths);
@@ -1175,12 +1157,9 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                                     TuSdkContext.context().getContentResolver().update(uri, values, null, null);
                                 } catch (FileNotFoundException e) {
                                     e.printStackTrace();
-                                } catch (IOException e) {
-                                    e.printStackTrace();
                                 }
                             } else {
                                 boolean renameSuccess = FileHelper.rename(new File(mVideoLists.get(0).path),new File(outputPath));
-                                TLog.e("file rename %s to %s is success %s",mVideoLists.get(0).path,outputPath,renameSuccess);
                             }
 
 
@@ -1227,13 +1206,12 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             }
 
             @Override
-            public void changedAudioEffect(int effect) {
-                mCurrentAudioEffect = effect;
+            public void changedAudioEffect(String type) {
+                mAudioRecord.updateAudioPitch(type);
             }
 
             @Override
             public void changedSpeed(double speed) {
-                TLog.e("current stretch %s",speed);
                 mCurrentStretch = speed;
                 if (mCurrentStretch == 2.0){
                     mCurrentVideoStretch = 0.5;
@@ -1256,7 +1234,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                     }
                 });
 
-                mAudioRecord.updateAudioStretch(mCurrentVideoStretch);
+                mAudioRecord.updateAudioStretch(mCurrentStretch);
 //                CURRENT_MAX_RECORD_DURATION = (long) (MAX_RECORD_DURATION / speed);
             }
 
@@ -1594,9 +1572,10 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 mCameraView.release();
                 mFP.clearFilters();
                 mFP.destroy();
-                Engine.getInstance().release();
             }
         });
+        Engine.getInstance().release();
+
     }
 
     private void startCameraCapture(){
