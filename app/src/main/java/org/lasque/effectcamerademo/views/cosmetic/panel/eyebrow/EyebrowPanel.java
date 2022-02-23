@@ -69,10 +69,8 @@ public class EyebrowPanel extends BasePanel {
                         currentGroupId = item.mMistyGroupId;
                         break;
                 }
-                mController.getProperty().browEnable = 1;
 
-                mController.getProperty().browId = StickerLocalPackage.shared().getStickerGroup(currentGroupId).stickers.get(0).stickerId;
-                mController.updateProperty();
+                mController.getBeautyManager().setBrowStickerId(StickerLocalPackage.shared().getStickerGroup(currentGroupId).stickers.get(0).stickerId);
             }
         });
         ImageView putAway = panel.findViewById(R.id.lsq_eyebrow_put_away);
@@ -103,10 +101,8 @@ public class EyebrowPanel extends BasePanel {
                         currentGroupId = item.mMistyGroupId;
                         break;
                 }
-                mController.getProperty().browEnable = 1;
-                mController.getProperty().browId = StickerLocalPackage.shared().getStickerGroup(currentGroupId).stickers.get(0).stickerId;
-                mController.getProperty().browOpacity = mController.getEffect().getFilterArg("eyebrowAlpha").getPrecentValue();
-                mController.updateProperty();
+                mController.getBeautyManager().setBrowStickerId(StickerLocalPackage.shared().getStickerGroup(currentGroupId).stickers.get(0).stickerId);
+                mController.getBeautyManager().setBrowOpacity(mController.getEffect().getFilterArg("eyebrowAlpha").getPrecentValue());
                 mAdapter.setCurrentPos(pos);
                 if (onPanelClickListener != null) onPanelClickListener.onClick(mType);
 
@@ -123,8 +119,7 @@ public class EyebrowPanel extends BasePanel {
 
     @Override
     public void clear() {
-        mController.getProperty().browEnable = 0;
-        mController.updateProperty();
+        mController.getBeautyManager().setBrowEnable(false);
         mAdapter.setCurrentPos(-1);
         mCurrentType = null;
         if (onPanelClickListener != null) onPanelClickListener.onClear(mType);

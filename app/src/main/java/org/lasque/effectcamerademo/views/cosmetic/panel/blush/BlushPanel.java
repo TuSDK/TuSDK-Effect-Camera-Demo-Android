@@ -56,9 +56,8 @@ public class BlushPanel extends BasePanel {
             @Override
             public void onItemClick(int pos, BlushAdapter.BlushViewHolder holder, CosmeticTypes.BlushType item) {
                 mCurrentType = item;
-                mController.getProperty().blushId = StickerLocalPackage.shared().getStickerGroup(item.mGroupId).stickers.get(0).stickerId;
-                mController.getProperty().blushOpacity = mController.getEffect().getFilterArg("blushAlpha").getPrecentValue();
-                mController.updateProperty();
+                mController.getBeautyManager().setBlushStickerId(StickerLocalPackage.shared().getStickerGroup(item.mGroupId).stickers.get(0).stickerId);
+                mController.getBeautyManager().setBlushOpacity(mController.getEffect().getFilterArg("blushAlpha").getPrecentValue());
                 mAdapter.setCurrentPos(pos);
                 if (onPanelClickListener != null) onPanelClickListener.onClick(mType);
             }
@@ -76,8 +75,7 @@ public class BlushPanel extends BasePanel {
     public void clear() {
         mCurrentType = null;
         mAdapter.setCurrentPos(-1);
-        mController.getProperty().blushEnable = 0;
-        mController.updateProperty();
+        mController.getBeautyManager().setBlushEnable(false);
         if (onPanelClickListener != null) onPanelClickListener.onClear(mType);
     }
 }

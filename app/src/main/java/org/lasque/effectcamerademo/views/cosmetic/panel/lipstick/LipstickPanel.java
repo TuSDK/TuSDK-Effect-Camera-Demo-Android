@@ -13,6 +13,7 @@ import org.lasque.effectcamerademo.views.cosmetic.CosmeticPanelController;
 import org.lasque.effectcamerademo.views.cosmetic.CosmeticTypes;
 import org.lasque.effectcamerademo.views.cosmetic.OnItemClickListener;
 import org.lasque.effectcamerademo.views.cosmetic.panel.BasePanel;
+import org.lasque.tubeautysetting.Beauty;
 
 import static org.lasque.effectcamerademo.views.cosmetic.CosmeticTypes.Types.Lipstick;
 
@@ -57,10 +58,9 @@ public class LipstickPanel extends BasePanel {
                 stateIcon.setImageResource(mCurrentState.mIconId);
                 stateTitle.setText(mCurrentState.mTitleId);
                 if (mCurrentType == null) return;
-                mController.getProperty().lipEnable = 1;
-                mController.getProperty().lipStyle = mCurrentState.mType;
-                mController.getProperty().lipColor = mCurrentType.mColor;
-                mController.updateProperty();
+                mController.getBeautyManager().setLipEnable(true);
+                mController.getBeautyManager().setLipStyle(Beauty.BeautyLipstickStyle.getStyleFromValue(mCurrentState.mType));
+                mController.getBeautyManager().setLipColor(mCurrentType.mColor);
             }
         });
 
@@ -84,11 +84,10 @@ public class LipstickPanel extends BasePanel {
             @Override
             public void onItemClick(int pos, LipstickAdapter.LipstickViewHolder holder, CosmeticTypes.LipstickType item) {
                 mCurrentType = item;
-                mController.getProperty().lipEnable = 1;
-                mController.getProperty().lipStyle = mCurrentState.mType;
-                mController.getProperty().lipColor = mCurrentType.mColor;
-                mController.getProperty().lipOpacity = mController.getEffect().getFilterArg("lipAlpha").getPrecentValue();
-                mController.updateProperty();
+                mController.getBeautyManager().setLipEnable(true);
+                mController.getBeautyManager().setLipStyle(Beauty.BeautyLipstickStyle.getStyleFromValue(mCurrentState.mType));
+                mController.getBeautyManager().setLipColor(mCurrentType.mColor);
+                mController.getBeautyManager().setLipOpacity(mController.getEffect().getFilterArg("lipAlpha").getPrecentValue());
                 mAdapter.setCurrentPos(pos);
                 if (onPanelClickListener != null) onPanelClickListener.onClick(mType);
 
@@ -106,8 +105,7 @@ public class LipstickPanel extends BasePanel {
     @Override
     public void clear() {
         mCurrentType = null;
-        mController.getProperty().lipEnable = 0;
-        mController.updateProperty();
+        mController.getBeautyManager().setLipEnable(false);
         mAdapter.setCurrentPos(-1);
         if (onPanelClickListener != null) onPanelClickListener.onClear(mType);
     }

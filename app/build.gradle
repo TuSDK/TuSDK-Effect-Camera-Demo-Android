@@ -6,15 +6,15 @@ apply plugin: 'kotlin-android'
 
 android {
     signingConfigs {
-    release {
-        storeFile file('D:\\tusdk-work\\lasque\\android-ec-demo\\Signature\\publish.keystore')
-        storePassword '23wesdxc#'
-        keyAlias 'tusdk'
-        keyPassword '23wesdxc#'
-    }
+//    release {
+//        storeFile file('D:\\tusdk-work\\lasque\\android-ec-demo\\Signature\\publish.keystore')
+//        storePassword '23wesdxc#'
+//        keyAlias 'tusdk'
+//        keyPassword '23wesdxc#'
+//    }
     }
     compileSdkVersion 30
-    buildToolsVersion "29.0.3"
+//    buildToolsVersion "29.0.3"
 
     defaultConfig {
         applicationId "org.lasque.effectcamerademo"
@@ -30,7 +30,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+//            signingConfig signingConfigs.release
         }
     }
     compileOptions {
@@ -42,6 +42,7 @@ android {
 
 dependencies {
     api fileTree(include: ['*.jar'], dir: 'libs')
+    api project(path: ':TuBeautySetting')
 
 
     implementation 'androidx.appcompat:appcompat:1.2.0'
@@ -62,7 +63,7 @@ dependencies {
     api 'androidx.multidex:multidex:2.0.1'
 
     api 'androidx.constraintlayout:constraintlayout:2.0.2'
-    implementation "androidx.core:core-ktx:+"
+    implementation "androidx.core:core-ktx:1.6.0"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation("org.jetbrains.anko:anko:$anko_version")
 

@@ -58,10 +58,9 @@ public class EyelashPanel extends BasePanel {
             @Override
             public void onItemClick(int pos, EyelashAdapter.EyelashViewHolder holder, CosmeticTypes.EyelashType item) {
                 mCurrentType = item;
-                mController.getProperty().eyelashEnable = 1;
-                mController.getProperty().eyelashId = StickerLocalPackage.shared().getStickerGroup(item.mGroupId).stickers.get(0).stickerId;
-                mController.getProperty().eyeshadowOpacity = mController.getEffect().getFilterArg("eyelashAlpha").getPrecentValue();
-                mController.updateProperty();
+                mController.getBeautyManager().setEyelashEnable(true);
+                mController.getBeautyManager().setEyelashStickerId(StickerLocalPackage.shared().getStickerGroup(item.mGroupId).stickers.get(0).stickerId);
+                mController.getBeautyManager().setEyelashOpacity(mController.getEffect().getFilterArg("eyelashAlpha").getPrecentValue());
                 mAdapter.setCurrentPos(pos);
                 if (onPanelClickListener != null) onPanelClickListener.onClick(mType);
 
@@ -79,8 +78,7 @@ public class EyelashPanel extends BasePanel {
     @Override
     public void clear() {
         mCurrentType = null;
-        mController.getProperty().eyelashEnable = 0;
-        mController.updateProperty();
+        mController.getBeautyManager().setEyelashEnable(false);
         mAdapter.setCurrentPos(-1);
         if (onPanelClickListener != null) onPanelClickListener.onClear(mType);
     }

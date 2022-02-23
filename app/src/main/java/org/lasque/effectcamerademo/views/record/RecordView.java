@@ -18,7 +18,6 @@ import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
@@ -43,24 +42,17 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager2.widget.ViewPager2;
 
 import com.tusdk.pulse.Config;
-import com.tusdk.pulse.DispatchQueue;
 import com.tusdk.pulse.audio.processors.AudioPitchProcessor;
 import com.tusdk.pulse.filter.Filter;
-import com.tusdk.pulse.filter.FilterDisplayView;
-import com.tusdk.pulse.filter.FilterPipe;
-import com.tusdk.pulse.filter.filters.AspectRatioFilter;
-import com.tusdk.pulse.filter.filters.CropFilter;
 import com.tusdk.pulse.filter.filters.TusdkBeautFaceV2Filter;
-import com.tusdk.pulse.filter.filters.TusdkFaceMonsterFilter;
 import com.tusdk.pulse.filter.filters.TusdkFacePlasticFilter;
 import com.tusdk.pulse.filter.filters.TusdkImageFilter;
-import com.tusdk.pulse.filter.filters.TusdkLiveStickerFilter;
 import com.tusdk.pulse.filter.filters.TusdkReshapeFilter;
 
-import org.lasque.effectcamerademo.MovieRecordFullScreenActivity;
-import org.lasque.effectcamerademo.audio.AudioListActivity;
 import org.lasque.effectcamerademo.views.props.model.PropsItemMonster;
 import org.lasque.effectcamerademo.views.props.model.PropsItemSticker;
+import org.lasque.tubeautysetting.AudioConvert;
+import org.lasque.tubeautysetting.Beauty;
 import org.lasque.tusdkpulse.core.TuSdk;
 import org.lasque.tusdkpulse.core.TuSdkContext;
 import org.lasque.tusdkpulse.core.TuSdkResult;
@@ -69,7 +61,6 @@ import org.lasque.tusdkpulse.core.seles.tusdk.FilterGroup;
 import org.lasque.tusdkpulse.core.seles.tusdk.FilterLocalPackage;
 import org.lasque.tusdkpulse.core.seles.tusdk.FilterOption;
 import org.lasque.tusdkpulse.core.struct.TuSdkSize;
-import org.lasque.tusdkpulse.core.struct.ViewSize;
 import org.lasque.tusdkpulse.core.utils.TLog;
 import org.lasque.tusdkpulse.core.utils.ThreadHelper;
 import org.lasque.tusdkpulse.core.utils.hardware.CameraConfigs;
@@ -101,7 +92,6 @@ import org.lasque.effectcamerademo.views.props.model.PropsItemMonsterCategory;
 import org.lasque.effectcamerademo.views.props.model.PropsItemStickerCategory;
 import org.lasque.tusdkpulse.cx.hardware.camera.TuCamera;
 import org.lasque.tusdkpulse.cx.hardware.utils.TuCameraAspectRatio;
-import org.lasque.tusdkpulse.cx.hardware.utils.TuCameraSizeMap;
 import org.lasque.tusdkpulse.impl.view.widget.RegionDefaultHandler;
 import org.lasque.tusdkpulse.impl.view.widget.RegionHandler;
 
@@ -111,17 +101,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.SortedSet;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
-
-import static com.tusdk.pulse.filter.FileExporter.PITCH_TYPE_Girl;
-import static com.tusdk.pulse.filter.FileExporter.PITCH_TYPE_Lolita;
-import static com.tusdk.pulse.filter.FileExporter.PITCH_TYPE_Monster;
-import static com.tusdk.pulse.filter.FileExporter.PITCH_TYPE_Normal;
-import static com.tusdk.pulse.filter.FileExporter.PITCH_TYPE_Uncle;
 
 /**
  * Created by zuojindong on 2018/6/20.
@@ -139,8 +118,6 @@ public class RecordView extends RelativeLayout {
     public final static int DOUBLE_VIEW_INDEX = 50;
 
     static {
-
-
         mFilterMap.put(SelesParameters.FilterModel.Reshape, 13);
         mFilterMap.put(SelesParameters.FilterModel.CosmeticFace, 14);
         mFilterMap.put(SelesParameters.FilterModel.MonsterFace, 15);
@@ -150,12 +127,6 @@ public class RecordView extends RelativeLayout {
         mFilterMap.put(SelesParameters.FilterModel.Filter, 19);
 
 
-    }
-
-    public FilterDisplayView mCameraView;
-
-    public void setCameraView(FilterDisplayView cameraView) {
-        mCameraView = cameraView;
     }
 
     public enum RecordState {
@@ -211,7 +182,7 @@ public class RecordView extends RelativeLayout {
          */
         void finishRecordActivity();
 
-        void changedAudioEffect(String effect);
+        void changedAudioEffect(AudioConvert.AudioPitchType type);
 
         void changedSpeed(double speed);
 
@@ -230,6 +201,8 @@ public class RecordView extends RelativeLayout {
         void selectAudio();
 
         void updateMicState(boolean isOpen);
+
+        void changeRenderWidth(double width);
     }
 
     public void setDelegate(TuSDKMovieRecordDelegate delegate) {
@@ -256,19 +229,9 @@ public class RecordView extends RelativeLayout {
 
     private TuCamera mCamera;
 
+    private Beauty mBeautyManager;
+
     /******************************* FilterPipe ********************************/
-
-    private FilterPipe mFP;
-
-    private DispatchQueue mRenderPool;
-
-    private HashMap<SelesParameters.FilterModel, Filter> mCurrentFilterMap = new HashMap<>();
-
-    private HashMap<SelesParameters.FilterModel, Object> mPropertyMap = new HashMap<>();
-
-    private Filter mRatioFilter;
-
-    private AspectRatioFilter.PropertyBuilder mRatioProperty = new AspectRatioFilter.PropertyBuilder();
 
     private DoubleViewMode mCurrentDoubleViewMode = DoubleViewMode.LeftRight;
 
@@ -394,6 +357,9 @@ public class RecordView extends RelativeLayout {
     private TextView mTopBottomMode;
     private TextView mLeftRightMode;
     private TextView mViewInViewMode;
+
+    private TextView mRender720;
+    private TextView mRender1080;
 
     private boolean canChangeLayer = true;
 
@@ -672,6 +638,11 @@ public class RecordView extends RelativeLayout {
             }
         });
 
+        mRender720 = findViewById(R.id.lsq_render_720);
+        mRender720.setOnClickListener(mRenderSizeChanged);
+        mRender1080 = findViewById(R.id.lsq_render_1080);
+        mRender1080.setOnClickListener(mRenderSizeChanged);
+
         mFilterValueMap = getContext().getSharedPreferences("TUTUFilter", Context.MODE_PRIVATE);
 
         initFilterRecyclerView();
@@ -688,13 +659,10 @@ public class RecordView extends RelativeLayout {
     public TuSdkSize mCurrentRatio;
 
     /**
-     * @param filterPipe
-     * @param renderPool
      */
-    public void initFilterPipe(FilterPipe filterPipe, DispatchQueue renderPool) {
-        mFP = filterPipe;
-        mRenderPool = renderPool;
-        mController.initCosmetic(mFP, mRenderPool);
+    public void initFilterPipe(Beauty beauty) {
+        mBeautyManager = beauty;
+        mController.initCosmetic(beauty);
 
 //        Future<Boolean> res = mRenderPool.submit(new Callable<Boolean>() {
 //            @Override
@@ -731,12 +699,7 @@ public class RecordView extends RelativeLayout {
         mFilterReset.setOnClickListener(new TuSdkViewHelper.OnSafeClickListener() {
             @Override
             public void onSafeClick(View view) {
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.Filter));
-                    }
-                });
+                mBeautyManager.setFilter("");
                 mFilterFragments.get(mFilterTabIndicator.getCurrentPosition()).removeFilter();
                 mFilterConfigView.setVisibility(View.GONE);
                 mFilterViewPagerAdapter.notifyDataSetChanged();
@@ -831,6 +794,11 @@ public class RecordView extends RelativeLayout {
      * 录制按键
      */
     private OnTouchListener onTouchListener = new OnTouchListener() {
+        /**
+         * @param v
+         * @param event
+         * @return
+         */
         @Override
         public boolean onTouch(View v, MotionEvent event) {
             if (getDelegate() == null) return false;
@@ -873,23 +841,23 @@ public class RecordView extends RelativeLayout {
         public void onCheckedChanged(RadioGroup group, int checkedId) {
             switch (checkedId) {
                 case R.id.lsq_audio_normal:
-                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_NORMAL);
+                    getDelegate().changedAudioEffect(AudioConvert.AudioPitchType.NORMAL);
                     // 正常
                     break;
                 case R.id.lsq_audio_monster:
-                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_MONSTER);
+                    getDelegate().changedAudioEffect(AudioConvert.AudioPitchType.MONSTER);
                     // 怪兽
                     break;
                 case R.id.lsq_audio_uncle:
-                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_UNCLE);
+                    getDelegate().changedAudioEffect(AudioConvert.AudioPitchType.UNCLE);
                     // 大叔
                     break;
                 case R.id.lsq_audio_girl:
-                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_GIRL);
+                    getDelegate().changedAudioEffect(AudioConvert.AudioPitchType.GIRL);
                     // 女生
                     break;
                 case R.id.lsq_audio_lolita:
-                    getDelegate().changedAudioEffect(AudioPitchProcessor.TYPE_LOLITA);
+                    getDelegate().changedAudioEffect(AudioConvert.AudioPitchType.LOLITA);
                     // 萝莉
                     break;
             }
@@ -1084,44 +1052,22 @@ public class RecordView extends RelativeLayout {
         isFilterReset = false;
         SelesParameters selesParameters = new SelesParameters(code, SelesParameters.FilterModel.Filter);
 
-        mRenderPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                int filterIndex = mFilterMap.get(SelesParameters.FilterModel.Filter);
-                mFP.deleteFilter(filterIndex);
-                List<FilterOption> options = FilterLocalPackage.shared().getFilters(Arrays.asList(code));
-                if (options.size() > 0) {
-                    FilterOption option = options.get(0);
-                    for (String arg : option.args.keySet()) {
-                        selesParameters.appendFloatArg(arg, Float.parseFloat(option.args.get(arg)));
-                    }
-                }
-                FilterOption option = options.get(0);
-                double value = Double.parseDouble(option.args.get("mixied"));
-                Filter filter = new Filter(mFP.getContext(), TusdkImageFilter.TYPE_NAME);
-                Config config = new Config();
-                config.setString(TusdkImageFilter.CONFIG_NAME, code);
-                filter.setConfig(config);
-                TusdkImageFilter.MixedPropertyBuilder mFilterProperty = new TusdkImageFilter.MixedPropertyBuilder();
-                mFilterProperty.strength = value;
-                mPropertyMap.put(SelesParameters.FilterModel.Filter, mFilterProperty);
-                boolean ret = mFP.addFilter(filterIndex, filter);
-                filter.setProperty(TusdkImageFilter.PROP_PARAM, mFilterProperty.makeProperty());
-                mCurrentFilterMap.put(SelesParameters.FilterModel.Filter, filter);
+        List<FilterOption> options = FilterLocalPackage.shared().getFilters(Arrays.asList(code));
+        if (options.size() > 0) {
+            FilterOption option = options.get(0);
+            for (String arg : option.args.keySet()) {
+                selesParameters.appendFloatArg(arg, Float.parseFloat(option.args.get(arg)));
             }
-        });
+        }
+        FilterOption option = options.get(0);
+        double value = Double.parseDouble(option.args.get("mixied"));
+
+        mBeautyManager.setFilter(code);
+        mBeautyManager.setFilterStrength((float) value);
         selesParameters.setListener(new SelesParameters.SelesParametersListener() {
             @Override
             public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
-
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        TusdkImageFilter.MixedPropertyBuilder mFilterProperty = (TusdkImageFilter.MixedPropertyBuilder) mPropertyMap.get(SelesParameters.FilterModel.Filter);
-                        mFilterProperty.strength = arg.getPrecentValue();
-                        boolean ret = mCurrentFilterMap.get(SelesParameters.FilterModel.Filter).setProperty(TusdkImageFilter.PROP_PARAM, mFilterProperty.makeProperty());
-                    }
-                });
+                mBeautyManager.setFilterStrength(arg.getPrecentValue());
             }
         });
         mFilterConfigView.setFilterArgs(selesParameters.getArgs());
@@ -1287,21 +1233,7 @@ public class RecordView extends RelativeLayout {
      */
     protected void changeVideoComicEffectCode(final String code) {
         isFilterReset = false;
-
-        mRenderPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                int filterIndex = mFilterMap.get(SelesParameters.FilterModel.Filter);
-                mFP.deleteFilter(filterIndex);
-                Filter filter = new Filter(mFP.getContext(), TusdkImageFilter.TYPE_NAME);
-                Config config = new Config();
-                config.setString(TusdkImageFilter.CONFIG_NAME, code);
-                filter.setConfig(config);
-                TusdkImageFilter.MixedPropertyBuilder mFilterProperty = new TusdkImageFilter.MixedPropertyBuilder();
-                mPropertyMap.put(SelesParameters.FilterModel.Filter, mFilterProperty);
-                mFP.addFilter(filterIndex, filter);
-            }
-        });
+        mBeautyManager.setFilter(code);
         mFilterValueMap.edit().putString(DEFAULT_FILTER_CODE, code).apply();
         mFilterValueMap.edit().putLong(DEFAULT_FILTER_GROUP, mFilterGroups.get(mFilterViewPager.getCurrentItem()).groupId).apply();
         if (mFilterTabIndicator.getCurrentPosition() != -1) {
@@ -1370,44 +1302,18 @@ public class RecordView extends RelativeLayout {
         @Override
         public void removePropsItem(PropsItem propsItem) {
             if (propsItemUsed(propsItem)) {
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        int stickerIndex = mFilterMap.get(SelesParameters.FilterModel.StickerFace);
-                        removeRes = mFP.deleteFilter(stickerIndex);
-                    }
-                });
-
-                if (removeRes) {
-                    mCurrentFilterMap.remove(SelesParameters.FilterModel.StickerFace);
-                }
+                mBeautyManager.setDynamicSticker(0);
             }
         }
 
         private long mCurrentGroupId = 0l;
 
+
         @Override
         public void didSelectPropsItem(PropsItem propsItem) {
             mPropsItemPagerAdapter.notifyAllPageData();
-
-            mRenderPool.runSync(new Runnable() {
-                @Override
-                public void run() {
-                    mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
-                    mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace));
-                    int stickerIndex = mFilterMap.get(SelesParameters.FilterModel.StickerFace);
-                    mFP.deleteFilter(stickerIndex);
-                    Filter sticker = new Filter(mFP.getContext(), TusdkLiveStickerFilter.TYPE_NAME);
-                    Config config = new Config();
-                    config.setNumber(TusdkLiveStickerFilter.CONFIG_ID, ((PropsItemSticker) propsItem).getStickerGroup().groupId);
-                    sticker.setConfig(config);
-                    mCurrentFilterMap.put(SelesParameters.FilterModel.StickerFace, sticker);
-                    selectRes = mFP.addFilter(stickerIndex, sticker);
-                }
-            });
-            if (selectRes) {
-                mCurrentGroupId = ((PropsItemSticker) propsItem).getStickerGroup().groupId;
-            }
+            mBeautyManager.setDynamicSticker(((PropsItemSticker) propsItem).getStickerGroup().groupId);
+            mCurrentGroupId = ((PropsItemSticker) propsItem).getStickerGroup().groupId;
         }
 
         /**
@@ -1418,9 +1324,11 @@ public class RecordView extends RelativeLayout {
          */
         @Override
         public boolean propsItemUsed(PropsItem propsItem) {
-            if (mCurrentFilterMap.get(SelesParameters.FilterModel.StickerFace) == null)
+            if (mBeautyManager == null || !mBeautyManager.hasDynamicSticker())
                 return false;
             long groupId = ((PropsItemSticker) propsItem).getStickerGroup().groupId;
+
+            TLog.e("[Debug] current click sticker id %s current sticker id %s",groupId,mCurrentGroupId);
             return mCurrentGroupId == groupId;
         }
     };
@@ -1429,30 +1337,19 @@ public class RecordView extends RelativeLayout {
      * 选择道具物品后回调
      */
     private PropsItemPageFragment.ItemDelegate mPropsItemDelegate = new PropsItemPageFragment.ItemDelegate() {
+
+        private String mCurrentMonsterFaceCode = "";
+
         @Override
         public void didSelectPropsItem(PropsItem propsItem) {
             hideBeautyBarLayout();
             mBeautyPlasticRecyclerAdapter.clearSelect();
 
-            mRenderPool.runSync(new Runnable() {
-                @Override
-                public void run() {
-                    mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
-                    mCurrentFilterMap.remove(SelesParameters.FilterModel.StickerFace);
-                    mCurrentFilterMap.remove(SelesParameters.FilterModel.PlasticFace);
-                    mCurrentFilterMap.remove(SelesParameters.FilterModel.Reshape);
-                    mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.PlasticFace));
-                    mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.Reshape));
-                    mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace));
-                    mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.StickerFace));
-                    Filter filter = new Filter(mFP.getContext(), TusdkFaceMonsterFilter.TYPE_NAME);
-                    Config config = new Config();
-                    config.setString(TusdkFaceMonsterFilter.CONFIG_TYPE, ((PropsItemMonster) propsItem).getMonsterCode());
-                    filter.setConfig(config);
-                    boolean ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace), filter);
-                    mCurrentFilterMap.put(SelesParameters.FilterModel.MonsterFace, filter);
-                }
-            });
+            mCurrentMonsterFaceCode = ((PropsItemMonster) propsItem).getMonsterCode();
+
+            mBeautyManager.setMonsterFace(mCurrentMonsterFaceCode);
+            TLog.e("current monster code %s",mCurrentMonsterFaceCode);
+
             mPropsItemPagerAdapter.notifyAllPageData();
         }
 
@@ -1464,9 +1361,9 @@ public class RecordView extends RelativeLayout {
          */
         @Override
         public boolean propsItemUsed(PropsItem propsItem) {
-            if (mCurrentFilterMap.get(SelesParameters.FilterModel.MonsterFace) == null)
+            if (mBeautyManager == null || !mBeautyManager.hasMonsterFace())
                 return false;
-            boolean res = mCurrentFilterMap.get(SelesParameters.FilterModel.MonsterFace).getConfig().getString(TusdkFaceMonsterFilter.CONFIG_TYPE).equals(((PropsItemMonster) propsItem).getMonsterCode());
+            boolean res = mCurrentMonsterFaceCode.equals(((PropsItemMonster) propsItem).getMonsterCode());
             return res;
         }
 
@@ -2043,12 +1940,7 @@ public class RecordView extends RelativeLayout {
                 public void onClear() {
                     hideBeautyBarLayout();
 
-                    mRenderPool.runSync(new Runnable() {
-                        @Override
-                        public void run() {
-                            boolean ret = mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace));
-                        }
-                    });
+                    mBeautyManager.setBeautyStyle(Beauty.BeautySkinMode.None);
                     mCurrentSkinMode = null;
                     isBeautyClose = true;
                 }
@@ -2184,18 +2076,6 @@ public class RecordView extends RelativeLayout {
                 } else {
                     hideBeautyBarLayout();
                 }
-
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        boolean ret = false;
-                        if (mFP.getFilter(mFilterMap.get(SelesParameters.FilterModel.CosmeticFace)) == null) {
-                            ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.CosmeticFace), mController.getCosmeticFilter());
-                        }
-                    }
-                });
-
-
                 break;
         }
     }
@@ -2252,134 +2132,63 @@ public class RecordView extends RelativeLayout {
      * @param skinMode true 自然(精准)美颜 false 极致美颜
      */
     private void switchConfigSkin(Constants.SkinMode skinMode) {
-        mRenderPool.runSync(new Runnable() {
+
+        SelesParameters selesParameters = new SelesParameters();
+        selesParameters.appendFloatArg("whitening", 0.3f);
+        selesParameters.appendFloatArg("smoothing", 0.8f);
+
+        switch (skinMode) {
+            case SkinNatural:
+                selesParameters.appendFloatArg("ruddy", 0.4f);
+
+                mBeautyManager.setBeautyStyle(Beauty.BeautySkinMode.SkinNatural);
+                mBeautyManager.setSmoothLevel(0.8f);
+                mBeautyManager.setWhiteningLevel(0.3f);
+                mBeautyManager.setRuddyLevel(0.4f);
+                break;
+            case SkinMoist:
+                selesParameters.appendFloatArg("ruddy", 0.4f);
+
+                mBeautyManager.setBeautyStyle(Beauty.BeautySkinMode.SkinMoist);
+                mBeautyManager.setSmoothLevel(0.8f);
+                mBeautyManager.setWhiteningLevel(0.3f);
+                mBeautyManager.setRuddyLevel(0.4f);
+                break;
+            case Beauty:
+                selesParameters.appendFloatArg("sharpen", 0.6f);
+
+                mBeautyManager.setBeautyStyle(Beauty.BeautySkinMode.Beauty);
+
+                mBeautyManager.setSmoothLevel(0.8f);
+                mBeautyManager.setWhiteningLevel(0.3f);
+                mBeautyManager.setSharpenLevel(0.6f);
+                break;
+        }
+
+        selesParameters.setListener(new SelesParameters.SelesParametersListener() {
             @Override
-            public void run() {
-                Filter filter = mFP.getFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace));
-                if (filter != null){
-                    mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace));
-                    filter.release();
-                }
-                SelesParameters selesParameters = new SelesParameters();
-                selesParameters.appendFloatArg("whitening", 0.3f);
-                selesParameters.appendFloatArg("smoothing", 0.8f);
-                Filter skinFilter = null;
-                Config config = null;
-                boolean ret = false;
-                switch (skinMode) {
-                    case SkinNatural:
-                        skinFilter = new Filter(mFP.getContext(), TusdkImageFilter.TYPE_NAME);
-                        config = new Config();
-                        config.setString(TusdkImageFilter.CONFIG_NAME, TusdkImageFilter.NAME_SkinNatural);
-                        skinFilter.setConfig(config);
-                        TusdkImageFilter.SkinNaturalPropertyBuilder naturalPropertyBuilder = new TusdkImageFilter.SkinNaturalPropertyBuilder();
-                        naturalPropertyBuilder.smoothing = 0.8;
-                        naturalPropertyBuilder.fair = 0.3;
-                        naturalPropertyBuilder.ruddy = 0.4;
-                        mPropertyMap.put(SelesParameters.FilterModel.SkinFace, naturalPropertyBuilder);
-                        selesParameters.appendFloatArg("ruddy", 0.4f);
-                        ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace), skinFilter);
-                        skinFilter.setProperty(TusdkImageFilter.PROP_PARAM, naturalPropertyBuilder.makeProperty());
+            public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
+
+                String key = arg.getKey();
+                double progress = arg.getPrecentValue();
+                switch (key) {
+                    case "whitening":
+                        mBeautyManager.setWhiteningLevel((float) progress);
                         break;
-                    case SkinMoist:
-                        skinFilter = new Filter(mFP.getContext(), TusdkImageFilter.TYPE_NAME);
-                        config = new Config();
-                        config.setString(TusdkImageFilter.CONFIG_NAME, TusdkImageFilter.NAME_SkinHazy);
-                        skinFilter.setConfig(config);
-
-                        TusdkImageFilter.SkinHazyPropertyBuilder hazyPropertyBuilder = new TusdkImageFilter.SkinHazyPropertyBuilder();
-                        hazyPropertyBuilder.smoothing = 0.8;
-                        hazyPropertyBuilder.fair = 0.3;
-                        hazyPropertyBuilder.ruddy = 0.4;
-
-                        mPropertyMap.put(SelesParameters.FilterModel.SkinFace, hazyPropertyBuilder);
-                        selesParameters.appendFloatArg("ruddy", 0.4f);
-                        ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace), skinFilter);
-                        skinFilter.setProperty(TusdkImageFilter.PROP_PARAM, hazyPropertyBuilder.makeProperty());
+                    case "smoothing":
+                        mBeautyManager.setSmoothLevel((float) progress);
                         break;
-                    case Beauty:
-                        skinFilter = new Filter(mFP.getContext(), TusdkBeautFaceV2Filter.TYPE_NAME);
-
-                        TusdkBeautFaceV2Filter.PropertyBuilder builder = new TusdkBeautFaceV2Filter.PropertyBuilder();
-                        builder.smoothing = 0.8;
-                        builder.whiten = 0.3;
-                        builder.sharpen = 0.6f;
-                        mPropertyMap.put(SelesParameters.FilterModel.SkinFace, builder);
-                        selesParameters.appendFloatArg("sharpen", 0.6f);
-                        ret = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.SkinFace), skinFilter);
-                        skinFilter.setProperty(TusdkBeautFaceV2Filter.PROP_PARAM, builder.makeProperty());
+                    case "ruddy":
+                        mBeautyManager.setRuddyLevel((float) progress);
+                        break;
+                    case "sharpen":
+                        mBeautyManager.setSharpenLevel((float) progress);
                         break;
                 }
-
-
-                mCurrentFilterMap.put(SelesParameters.FilterModel.SkinFace, skinFilter);
-
-                selesParameters.setListener(new SelesParameters.SelesParametersListener() {
-                    @Override
-                    public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
-                        mRenderPool.runSync(new Runnable() {
-                            @Override
-                            public void run() {
-                                boolean ret = false;
-                                Object skinProperty = mPropertyMap.get(SelesParameters.FilterModel.SkinFace);
-                                String key = arg.getKey();
-                                double progress = arg.getPrecentValue();
-                                switch (mCurrentSkinMode) {
-                                    case SkinNatural:
-                                        TusdkImageFilter.SkinNaturalPropertyBuilder naturalPropertyBuilder = (TusdkImageFilter.SkinNaturalPropertyBuilder) skinProperty;
-                                        switch (key) {
-                                            case "whitening":
-                                                naturalPropertyBuilder.fair = progress;
-                                                break;
-                                            case "smoothing":
-                                                naturalPropertyBuilder.smoothing = progress;
-                                                break;
-                                            case "ruddy":
-                                                naturalPropertyBuilder.ruddy = progress;
-                                                break;
-                                        }
-                                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM, naturalPropertyBuilder.makeProperty());
-                                        break;
-                                    case SkinMoist:
-                                        TusdkImageFilter.SkinHazyPropertyBuilder hazyPropertyBuilder = (TusdkImageFilter.SkinHazyPropertyBuilder) skinProperty;
-                                        switch (key) {
-                                            case "whitening":
-                                                hazyPropertyBuilder.fair = progress;
-                                                break;
-                                            case "smoothing":
-                                                hazyPropertyBuilder.smoothing = progress;
-                                                break;
-                                            case "ruddy":
-                                                hazyPropertyBuilder.ruddy = progress;
-                                                break;
-                                        }
-                                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM, hazyPropertyBuilder.makeProperty());
-                                        break;
-                                    case Beauty:
-                                        TusdkBeautFaceV2Filter.PropertyBuilder faceProperty = (TusdkBeautFaceV2Filter.PropertyBuilder) skinProperty;
-                                        switch (key) {
-                                            case "whitening":
-                                                faceProperty.whiten = progress;
-                                                break;
-                                            case "smoothing":
-                                                faceProperty.smoothing = progress;
-                                                break;
-                                            case "sharpen":
-                                                faceProperty.sharpen = progress;
-                                                break;
-                                        }
-                                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkBeautFaceV2Filter.PROP_PARAM, faceProperty.makeProperty());
-                                        break;
-                                }
-                            }
-                        });
-                    }
-                });
-
-                mSkinParameters = selesParameters;
-                mCurrentSkinMode = skinMode;
             }
         });
+        mSkinParameters = selesParameters;
+        mCurrentSkinMode = skinMode;
 
         // 滤镜名显示
         showHitTitle(TuSdkContext.getString(getSkinModeTitle(skinMode)));
@@ -2399,71 +2208,6 @@ public class RecordView extends RelativeLayout {
         return "";
     }
 
-    /**
-     * 应用美肤
-     *
-     * @param key
-     * @param progress
-     */
-    private void submitSkinParamter(String key, float progress) {
-        mRenderPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                boolean ret = false;
-                Object skinProperty = mPropertyMap.get(SelesParameters.FilterModel.SkinFace);
-                switch (mCurrentSkinMode) {
-                    case SkinNatural:
-                        TusdkImageFilter.SkinNaturalPropertyBuilder naturalPropertyBuilder = (TusdkImageFilter.SkinNaturalPropertyBuilder) skinProperty;
-                        switch (key) {
-                            case "whitening":
-                                naturalPropertyBuilder.fair = progress;
-                                break;
-                            case "smoothing":
-                                naturalPropertyBuilder.smoothing = progress;
-                                break;
-                            case "ruddy":
-                                naturalPropertyBuilder.ruddy = progress;
-                                break;
-                        }
-                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM, naturalPropertyBuilder.makeProperty());
-                        break;
-                    case SkinMoist:
-                        TusdkImageFilter.SkinHazyPropertyBuilder hazyPropertyBuilder = (TusdkImageFilter.SkinHazyPropertyBuilder) skinProperty;
-                        switch (key) {
-                            case "whitening":
-                                hazyPropertyBuilder.fair = progress;
-                                break;
-                            case "smoothing":
-                                hazyPropertyBuilder.smoothing = progress;
-                                break;
-                            case "ruddy":
-                                hazyPropertyBuilder.ruddy = progress;
-                                break;
-                        }
-                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkImageFilter.PROP_PARAM, hazyPropertyBuilder.makeProperty());
-                        break;
-                    case Beauty:
-                        TusdkBeautFaceV2Filter.PropertyBuilder faceProperty = (TusdkBeautFaceV2Filter.PropertyBuilder) skinProperty;
-                        switch (key) {
-                            case "whitening":
-                                faceProperty.whiten = progress;
-                                break;
-                            case "smoothing":
-                                faceProperty.smoothing = progress;
-                                break;
-                            case "sharpen":
-                                faceProperty.sharpen = progress;
-                                break;
-                        }
-                        ret = mCurrentFilterMap.get(SelesParameters.FilterModel.SkinFace).setProperty(TusdkBeautFaceV2Filter.PROP_PARAM, faceProperty.makeProperty());
-                        break;
-                }
-            }
-        });
-
-
-    }
-
     private SelesParameters mPlasticParameter;
 
     /**
@@ -2472,19 +2216,11 @@ public class RecordView extends RelativeLayout {
      * @param position
      */
     private void switchBeautyPlasticConfig(int position) {
-        if (mCurrentFilterMap.get(SelesParameters.FilterModel.MonsterFace) != null) {
-            mRenderPool.runSync(new Runnable() {
-                @Override
-                public void run() {
-                    mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
-                    mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace));
-                }
-            });
-            mPropsItemPagerAdapter.notifyAllPageData();
-        }
+        mPropsItemPagerAdapter.notifyAllPageData();
 
 
-        if (mFP.getFilter(mFilterMap.get(SelesParameters.FilterModel.PlasticFace)) == null) {
+
+        if (mBeautyManager.hasPlastic()) {
             initPlastic();
         }
 
@@ -2494,278 +2230,214 @@ public class RecordView extends RelativeLayout {
 
     }
 
-    private void addReshape() {
-        Filter reshapeFilter = new Filter(mFP.getContext(), TusdkReshapeFilter.TYPE_NAME);
-        boolean reshapeRes = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.Reshape), reshapeFilter);
-        mCurrentFilterMap.put(SelesParameters.FilterModel.Reshape, reshapeFilter);
-    }
-
-    private void removeReshape() {
-        mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.Reshape));
-        mCurrentFilterMap.remove(SelesParameters.FilterModel.Reshape);
-    }
-
     private void initPlastic() {
-        mRenderPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                if (mFP.getFilter(mFilterMap.get(SelesParameters.FilterModel.PlasticFace)) == null) {
-                    Filter plasticFilter = new Filter(mFP.getContext(), TusdkFacePlasticFilter.TYPE_NAME);
+        SelesParameters parameters = new SelesParameters();
+        for (String key : mDefaultBeautyPercentParams.keySet()) {
+            float value = mDefaultBeautyPercentParams.get(key);
+            if (mReshapePlastics.contains(key)) {
+                parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                switch (key) {
+                    case "eyelidAlpha":
+                        mBeautyManager.setEyelidLevel(value);
+                        break;
+                    case "eyemazingAlpha":
+                        mBeautyManager.setEyemazingLevel(value);
+                        break;
+                    case "whitenTeethAlpha":
+                        mBeautyManager.setWhitenTeethLevel(value);
+                        break;
+                    case "eyeDetailAlpha":
+                        mBeautyManager.setEyeDetailLevel(value);
+                        break;
+                    case "removePouchAlpha":
+                        mBeautyManager.setRemovePouchLevel(value);
+                        break;
+                    case "removeWrinklesAlpha":
+                        mBeautyManager.setRemoveWrinklesLevel(value);
+                        break;
+                }
+            } else {
+                switch (key) {
+                    case "eyeSize":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setEyeEnlargeLevel(value);
+                        break;
+                    case "chinSize":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setCheekThinLevel(value);
+                        break;
+                    case "cheekNarrow":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setCheekNarrowLevel(value);
+                        break;
+                    case "smallFace":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setFaceSmallLevel(value);
+                        break;
+                    case "noseSize":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setNoseWidthLevel(value);
+                        break;
+                    case "noseHeight":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setNoseHeightLevel(value);
+                        break;
+                    case "mouthWidth":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setMouthWidthLevel(value);
+                        break;
+                    case "lips":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setLipsThicknessLevel(value);
+                        break;
+                    case "philterum":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setPhilterumThicknessLevel(value);
+                        break;
+                    case "archEyebrow":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setBrowThicknessLevel(value);
+                        break;
+                    case "browPosition":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setBrowHeightLevel(value);
+                        break;
+                    case "jawSize":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setChinThicknessLevel(value);
+                        break;
+                    case "cheekLowBoneNarrow":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setCheekLowBoneNarrowLevel(value);
+                        break;
+                    case "eyeAngle":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setEyeAngleLevel(value);
+                        break;
+                    case "eyeInnerConer":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setEyeInnerConerLevel(value);
+                        break;
+                    case "eyeOuterConer":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setEyeOuterConerLevel(value);
+                        break;
+                    case "eyeDis":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setEyeDistanceLevel(value);
+                        break;
+                    case "eyeHeight":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setEyeHeightLevel(value);
+                        break;
+                    case "forehead":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
+                        mBeautyManager.setForeheadHeightLevel(value);
+                        break;
+                    case "cheekBoneNarrow":
+                        parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
+                        mBeautyManager.setCheekBoneNarrowLevel(value);
+                        break;
 
-                    TusdkFacePlasticFilter.PropertyBuilder plasticProperty = new TusdkFacePlasticFilter.PropertyBuilder();
-
-                    SelesParameters parameters = new SelesParameters();
-                    boolean plasticRes = mFP.addFilter(mFilterMap.get(SelesParameters.FilterModel.PlasticFace), plasticFilter);
-                    mCurrentFilterMap.put(SelesParameters.FilterModel.PlasticFace, plasticFilter);
-                    TusdkReshapeFilter.PropertyBuilder reshapeProperty = new TusdkReshapeFilter.PropertyBuilder();
-
-                    for (String key : mDefaultBeautyPercentParams.keySet()) {
-                        float value = mDefaultBeautyPercentParams.get(key);
-                        if (mReshapePlastics.contains(key)) {
-                            parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                            switch (key) {
-                                case "eyelidAlpha":
-                                    reshapeProperty.eyelidOpacity = value;
-                                    break;
-                                case "eyemazingAlpha":
-                                    reshapeProperty.eyemazingOpacity = value;
-                                    break;
-                                case "whitenTeethAlpha":
-                                    reshapeProperty.whitenTeethOpacity = value;
-                                    break;
-                                case "eyeDetailAlpha":
-                                    reshapeProperty.eyeDetailOpacity = value;
-                                    break;
-                                case "removePouchAlpha":
-                                    reshapeProperty.removePouchOpacity = value;
-                                    break;
-                                case "removeWrinklesAlpha":
-                                    reshapeProperty.removeWrinklesOpacity = value;
-                                    break;
-                            }
-                        } else {
-                            switch (key) {
-                                case "eyeSize":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.eyeEnlarge = value;
-                                    break;
-                                case "chinSize":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.cheekThin = value;
-                                    break;
-                                case "cheekNarrow":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.cheekNarrow = value;
-                                    break;
-                                case "smallFace":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.faceSmall = value;
-                                    break;
-                                case "noseSize":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.noseWidth = value;
-                                    break;
-                                case "noseHeight":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.noseHeight = value;
-                                    break;
-                                case "mouthWidth":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.mouthWidth = value;
-                                    break;
-                                case "lips":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.lipsThickness = value;
-                                    break;
-                                case "philterum":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.philterumThickness = value;
-                                    break;
-                                case "archEyebrow":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.browThickness = value;
-                                    break;
-                                case "browPosition":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.browHeight = value;
-                                    break;
-                                case "jawSize":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.chinThickness = value;
-                                    break;
-                                case "cheekLowBoneNarrow":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.cheekLowBoneNarrow = value;
-                                    break;
-                                case "eyeAngle":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.eyeAngle = value;
-                                    break;
-                                case "eyeInnerConer":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.eyeInnerConer = value;
-                                    break;
-                                case "eyeOuterConer":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.eyeOuterConer = value;
-                                    break;
-                                case "eyeDis":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.eyeDistance = value;
-                                    break;
-                                case "eyeHeight":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.eyeHeight = value;
-                                    break;
-                                case "forehead":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key), -1, 1);
-                                    plasticProperty.foreheadHeight = value;
-                                    break;
-                                case "cheekBoneNarrow":
-                                    parameters.appendFloatArg(key, mDefaultBeautyPercentParams.get(key));
-                                    plasticProperty.cheekBoneNarrow = value;
-                                    break;
-
-                            }
-                        }
-                    }
-
-                    plasticFilter.setProperty(TusdkFacePlasticFilter.PROP_PARAM, plasticProperty.makeProperty());
-
-
-                    parameters.setListener(new SelesParameters.SelesParametersListener() {
-                        @Override
-                        public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
-                            double value = arg.getValue();
-                            String key = arg.getKey();
-                            if (mReshapePlastics.contains(key)) {
-                                submitPlastic(value, key, reshapeProperty);
-                            } else {
-                                submitPlastic(value, key, plasticProperty);
-
-                            }
-                        }
-                    });
-                    mPropertyMap.put(SelesParameters.FilterModel.PlasticFace, plasticProperty);
-                    mPropertyMap.put(SelesParameters.FilterModel.Reshape, reshapeProperty);
-                    mPlasticParameter = parameters;
                 }
             }
+        }
+        parameters.setListener(new SelesParameters.SelesParametersListener() {
+            @Override
+            public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
+                float value = arg.getValue();
+                String key = arg.getKey();
+                submitPlastic(value, key);
+            }
         });
+
+        mPlasticParameter = parameters;
+
     }
 
-    private void submitPlastic(double value, String key, TusdkFacePlasticFilter.PropertyBuilder plasticProperty) {
+    private void submitPlastic(float value, String key) {
         switch (key) {
             case "eyeSize":
-                plasticProperty.eyeEnlarge = value;
+                mBeautyManager.setEyeEnlargeLevel(value);
                 break;
             case "chinSize":
-                plasticProperty.cheekThin = value;
+                mBeautyManager.setCheekThinLevel(value);
                 break;
             case "cheekNarrow":
-                plasticProperty.cheekNarrow = value;
+                mBeautyManager.setCheekNarrowLevel(value);
                 break;
             case "smallFace":
-                plasticProperty.faceSmall = value;
+                mBeautyManager.setFaceSmallLevel(value);
                 break;
             case "noseSize":
-                plasticProperty.noseWidth = value;
+                mBeautyManager.setNoseWidthLevel(value);
                 break;
             case "noseHeight":
-                plasticProperty.noseHeight = value;
+                mBeautyManager.setNoseHeightLevel(value);
                 break;
             case "mouthWidth":
-                plasticProperty.mouthWidth = value;
+                mBeautyManager.setMouthWidthLevel(value);
                 break;
             case "lips":
-                plasticProperty.lipsThickness = value;
+                mBeautyManager.setLipsThicknessLevel(value);
                 break;
             case "philterum":
-                plasticProperty.philterumThickness = value;
+                mBeautyManager.setPhilterumThicknessLevel(value);
                 break;
             case "archEyebrow":
-                plasticProperty.browThickness = value;
+                mBeautyManager.setBrowThicknessLevel(value);
                 break;
             case "browPosition":
-                plasticProperty.browHeight = value;
+                mBeautyManager.setBrowHeightLevel(value);
                 break;
             case "jawSize":
-                plasticProperty.chinThickness = value;
+                mBeautyManager.setChinThicknessLevel(value);
                 break;
             case "cheekLowBoneNarrow":
-                plasticProperty.cheekLowBoneNarrow = value;
+                mBeautyManager.setCheekLowBoneNarrowLevel(value);
                 break;
             case "eyeAngle":
-                plasticProperty.eyeAngle = value;
+                mBeautyManager.setEyeAngleLevel(value);
                 break;
             case "eyeInnerConer":
-                plasticProperty.eyeInnerConer = value;
+                mBeautyManager.setEyeInnerConerLevel(value);
                 break;
             case "eyeOuterConer":
-                plasticProperty.eyeOuterConer = value;
+                mBeautyManager.setEyeOuterConerLevel(value);
                 break;
             case "eyeDis":
-                plasticProperty.eyeDistance = value;
+                mBeautyManager.setEyeDistanceLevel(value);
                 break;
             case "eyeHeight":
-                plasticProperty.eyeHeight = value;
+                mBeautyManager.setEyeHeightLevel(value);
                 break;
             case "forehead":
-                plasticProperty.foreheadHeight = value;
+                mBeautyManager.setForeheadHeightLevel(value);
                 break;
             case "cheekBoneNarrow":
-                plasticProperty.cheekBoneNarrow = value;
+                mBeautyManager.setCheekBoneNarrowLevel(value);
+                break;
+            case "eyelidAlpha":
+                mBeautyManager.setEyelidLevel(value);
+                break;
+            case "eyemazingAlpha":
+                mBeautyManager.setEyemazingLevel(value);
+                break;
+            case "whitenTeethAlpha":
+                mBeautyManager.setWhitenTeethLevel(value);
+                break;
+            case "eyeDetailAlpha":
+                mBeautyManager.setEyeDetailLevel(value);
+                break;
+            case "removePouchAlpha":
+                mBeautyManager.setRemovePouchLevel(value);
+                break;
+            case "removeWrinklesAlpha":
+                mBeautyManager.setRemoveWrinklesLevel(value);
                 break;
 
         }
         mPlasticParameter.getFilterArg(key).setValue((float) value);
-        mRenderPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                boolean ret = mCurrentFilterMap.get(SelesParameters.FilterModel.PlasticFace).setProperty(TusdkFacePlasticFilter.PROP_PARAM, plasticProperty.makeProperty());
-
-            }
-        });
-    }
-
-    private void submitPlastic(double value, String key, TusdkReshapeFilter.PropertyBuilder reshapeProperty) {
-
-
-        switch (key) {
-            case "eyelidAlpha":
-                reshapeProperty.eyelidOpacity = value;
-                break;
-            case "eyemazingAlpha":
-                reshapeProperty.eyemazingOpacity = value;
-                break;
-            case "whitenTeethAlpha":
-                reshapeProperty.whitenTeethOpacity = value;
-                break;
-            case "eyeDetailAlpha":
-                reshapeProperty.eyeDetailOpacity = value;
-                break;
-            case "removePouchAlpha":
-                reshapeProperty.removePouchOpacity = value;
-                break;
-            case "removeWrinklesAlpha":
-                reshapeProperty.removeWrinklesOpacity = value;
-                break;
-        }
-
-        mRenderPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                if (mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape) == null) {
-                    addReshape();
-                }
-                boolean res = true;
-                if (checkEnableReshape()) {
-                    res = mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape).setProperty(TusdkReshapeFilter.PROP_PARAM, reshapeProperty.makeProperty());
-                } else {
-                    removeReshape();
-                }
-            }
-        });
     }
 
     /**
@@ -2775,7 +2447,7 @@ public class RecordView extends RelativeLayout {
      * @param progress
      */
     private void submitPlasticFaceParamter(String key, float progress) {
-        submitPlastic(progress, key, (TusdkFacePlasticFilter.PropertyBuilder) mPropertyMap.get(SelesParameters.FilterModel.PlasticFace));
+        submitPlastic(progress, key);
     }
 
 
@@ -3032,15 +2704,8 @@ public class RecordView extends RelativeLayout {
                     break;
                 // 取消贴纸
                 case R.id.lsq_cancel_button:
-                    mRenderPool.runSync(new Runnable() {
-                        @Override
-                        public void run() {
-                            boolean ret = mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.StickerFace));
-                            mFP.deleteFilter(mFilterMap.get(SelesParameters.FilterModel.MonsterFace));
-                        }
-                    });
-                    mCurrentFilterMap.remove(SelesParameters.FilterModel.StickerFace);
-                    mCurrentFilterMap.remove(SelesParameters.FilterModel.MonsterFace);
+                    mBeautyManager.setDynamicSticker(0);
+                    mBeautyManager.setMonsterFace("");
                     mPropsItemPagerAdapter.notifyAllPageData();
                     break;
             }
@@ -3074,6 +2739,25 @@ public class RecordView extends RelativeLayout {
                     break;
             }
             mDelegate.updateDoubleViewMode(mCurrentDoubleViewMode);
+        }
+    };
+
+    private OnClickListener mRenderSizeChanged = new OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            if (mDelegate == null) return;
+            switch (v.getId()){
+                case R.id.lsq_render_720:
+                    mRender720.setTextColor(getContext().getColor(R.color.lsq_widget_speedbar_button_bg));
+                    mRender1080.setTextColor(getContext().getColor(R.color.lsq_color_white));
+                    mDelegate.changeRenderWidth(720);
+                    break;
+                case R.id.lsq_render_1080:
+                    mRender720.setTextColor(getContext().getColor(R.color.lsq_color_white));
+                    mRender1080.setTextColor(getContext().getColor(R.color.lsq_widget_speedbar_button_bg));
+                    mDelegate.changeRenderWidth(1080);
+                    break;
+            }
         }
     };
 
@@ -3689,16 +3373,6 @@ public class RecordView extends RelativeLayout {
         return mRegionHandle.getWrapSize();
     }
 
-    public boolean checkEnableMarkSence() {
-        Filter reshapeFilter = mCurrentFilterMap.get(SelesParameters.FilterModel.Reshape);
-
-        boolean makeSence = reshapeFilter != null;
-
-        makeSence = makeSence || mController.checkMarkSence();
-
-        return makeSence;
-    }
-
     public void updateAudioNameState(int visibility){
         mSelectAudio.setVisibility(visibility);
     }
@@ -3713,10 +3387,5 @@ public class RecordView extends RelativeLayout {
         minTimeLayoutParams.leftMargin = (int) (TuSdkContext.getScreenSize().width * leftPercent)
                 - TuSdkContext.dip2px(minTimeButton.getWidth());
         minTimeButton.setLayoutParams(minTimeLayoutParams);
-    }
-
-    private boolean checkEnableReshape() {
-        TusdkReshapeFilter.PropertyBuilder builder = (TusdkReshapeFilter.PropertyBuilder) mPropertyMap.get(SelesParameters.FilterModel.Reshape);
-        return builder.eyelidOpacity + builder.eyemazingOpacity + builder.whitenTeethOpacity + builder.removePouchOpacity + builder.removeWrinklesOpacity + builder.eyeDetailOpacity != 0;
     }
 }

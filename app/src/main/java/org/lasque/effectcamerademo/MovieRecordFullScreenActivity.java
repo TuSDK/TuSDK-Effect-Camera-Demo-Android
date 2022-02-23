@@ -2,55 +2,31 @@ package org.lasque.effectcamerademo;
 
 import android.Manifest;
 import android.app.AlertDialog;
-import android.content.ContentValues;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
-import android.hardware.Camera;
-import android.media.AudioFormat;
-import android.media.AudioManager;
-import android.media.AudioTrack;
-import android.media.MediaMetadataRetriever;
-import android.media.MediaRecorder;
 import android.net.Uri;
-import android.opengl.GLES20;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.MediaStore;
 import android.provider.Settings;
 import android.text.TextUtils;
-import android.util.Log;
+import android.util.SizeF;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
 
-import com.tusdk.pulse.Config;
-import com.tusdk.pulse.DispatchQueue;
 import com.tusdk.pulse.Engine;
 import com.tusdk.pulse.MediaInspector;
-import com.tusdk.pulse.filter.FileExporter;
-import com.tusdk.pulse.filter.FileRecordAudioMixer;
-import com.tusdk.pulse.filter.Filter;
-import com.tusdk.pulse.filter.FilterDisplayView;
-import com.tusdk.pulse.filter.FilterPipe;
 import com.tusdk.pulse.filter.Image;
-import com.tusdk.pulse.filter.filters.SimultaneouslyFilter;
-import com.tusdk.pulse.utils.gl.GLContext;
-import com.tusdk.pulse.utils.gl.OutputSurface;
 
 import org.lasque.effectcamerademo.album.AlbumActivity;
 import org.lasque.effectcamerademo.album.AlbumInfo;
@@ -60,54 +36,35 @@ import org.lasque.effectcamerademo.audio.AudioMixerItem;
 import org.lasque.effectcamerademo.audio.AudioRecord;
 import org.lasque.effectcamerademo.utils.Constants;
 import org.lasque.effectcamerademo.utils.PermissionUtils;
+import org.lasque.effectcamerademo.utils.SensorHelper;
 import org.lasque.effectcamerademo.views.record.RecordView;
+import org.lasque.tubeautysetting.AudioConvert;
+import org.lasque.tubeautysetting.PipeMediator;
+import org.lasque.tubeautysetting.RecordManager;
 import org.lasque.tusdkpulse.core.TuSdkContext;
 import org.lasque.tusdkpulse.core.TuSdkResult;
-import org.lasque.tusdkpulse.core.listener.TuSdkOrientationEventListener;
-import org.lasque.tusdkpulse.core.seles.SelesParameters;
 import org.lasque.tusdkpulse.core.struct.TuSdkSize;
 import org.lasque.tusdkpulse.core.struct.TuSdkSizeF;
 import org.lasque.tusdkpulse.core.struct.ViewSize;
 import org.lasque.tusdkpulse.core.utils.ContextUtils;
-import org.lasque.tusdkpulse.core.utils.FileHelper;
+import org.lasque.tusdkpulse.core.utils.TLog;
 import org.lasque.tusdkpulse.core.utils.ThreadHelper;
-import org.lasque.tusdkpulse.core.utils.TuSdkDate;
 import org.lasque.tusdkpulse.core.utils.hardware.CameraConfigs;
 import org.lasque.tusdkpulse.core.utils.hardware.InterfaceOrientation;
-import org.lasque.tusdkpulse.core.utils.image.AlbumHelper;
 import org.lasque.tusdkpulse.core.utils.image.BitmapHelper;
 import org.lasque.tusdkpulse.core.utils.image.ImageOrientation;
-import org.lasque.tusdkpulse.core.utils.image.RatioType;
-import org.lasque.tusdkpulse.core.utils.sqllite.ImageSqlHelper;
 import org.lasque.tusdkpulse.core.view.TuSdkViewHelper;
 import org.lasque.tusdkpulse.cx.hardware.camera.TuCamera;
 import org.lasque.tusdkpulse.cx.hardware.camera.TuCameraShot;
 import org.lasque.tusdkpulse.cx.hardware.camera.impl.TuCameraImpl;
 import org.lasque.tusdkpulse.cx.hardware.utils.TuCameraAspectRatio;
 import org.lasque.tusdkpulse.cx.seles.extend.TuSurfaceTextureHolder;
-import org.lasque.tusdkpulse.modules.view.widget.sticker.StickerData;
-import org.lasque.tusdkpulse.modules.view.widget.sticker.StickerFactory;
-import org.lasque.tusdkpulse.modules.view.widget.sticker.StickerResult;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.IntBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 import static android.os.Environment.DIRECTORY_DCIM;
 import static com.tusdk.pulse.filter.FileExporter.PITCH_TYPE_Normal;
-import static com.tusdk.pulse.filter.filters.SimultaneouslyFilter.PROP_RECT_PARAM;
-import static com.tusdk.pulse.filter.filters.SimultaneouslyFilter.PROP_SEEK_PARAM;
 import static org.lasque.effectcamerademo.base.BaseActivity.ALBUM_REQUEST_CODE;
 import static org.lasque.effectcamerademo.base.BaseActivity.ALBUM_RESULT_CODE;
 import static org.lasque.tusdkpulse.core.utils.hardware.CameraConfigs.CameraState.START;
@@ -128,26 +85,21 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         public long fragmentDuration;
     }
 
-    private static long CURRENT_MAX_RECORD_DURATION = 15000;
+    private static long CURRENT_MAX_RECORD_DURATION = 60000;
 
-    private static long MAX_RECORD_DURATION = 15000;
+    private static long MAX_RECORD_DURATION = 60000;
 
     private static int AUDIO_REQUEST_CODE = 4;
 
-    private FilterDisplayView mCameraView;
+    private static double PROCESS_WIDTH = 720;
+
+    private static TuSdkSize PREVIEW_SIZE = new TuSdkSize(1920,1080);
+
+    private FrameLayout mCameraView;
 
     private RecordView mRecordView;
 
     private TuCamera mCamera;
-
-//    private ExecutorService mRenderPool = Executors.newWorkStealingPool(1);Filter
-    private DispatchQueue mRenderPool = new DispatchQueue();
-
-    private DispatchQueue mRecordPool = new DispatchQueue();
-
-    private OutputSurface mOutputSurface;
-
-    private GLContext mGLCtx;
 
     protected TuSdkSize mInputSize;
 
@@ -155,24 +107,12 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private ImageOrientation mPreviewOrientation;
 
-    private FilterPipe mFP;
-
     /** SurfaceTexture */
     private SurfaceTexture mSurfaceTexture;
 
-    /** Texture ID */
-    private int mTexture = -1;
-    private final int mTexCount = 4;
-    private int[] mTextures = new int[mTexCount];
-    private int mTexIdx = 0;
-
     private boolean isInitSuccess = false;
 
-    private FileExporter mFileRecorder;
-
     private boolean isRecording = false;
-
-    private TuSdkOrientationEventListener mOrientationListener;
 
     private double mCurrentStretch = 1.0;
 
@@ -204,11 +144,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private TuCameraAspectRatio mRectRatio;
 
-    private RectF mCurrentPreviewRectF = new RectF(0,0,1,1);
-
     private TuSdkSize mRectSize;
-
-    private SimultaneouslyFilter.PropertyBuilder siBuilder = new SimultaneouslyFilter.PropertyBuilder();
 
     private String mCurrentDoubleViewVideoPath = "";
 
@@ -218,11 +154,14 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private AudioMixerItem mAudioItem;
 
-    private FileRecordAudioMixer mAudioMixer;
+    private long mCurrentPlayerPos = 0;
+
+
+    //------------------------------------------ PipeMediator ---------------------------------------- //
+
+    private PipeMediator mPipeMediator;
 
     private AudioRecord mAudioRecord;
-
-    private long mCurrentPlayerPos = 0;
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable @org.jetbrains.annotations.Nullable Intent data) {
@@ -230,17 +169,11 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         if (requestCode == ALBUM_REQUEST_CODE){
             if (resultCode == ALBUM_RESULT_CODE){
 
-
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        TuSdkSize size = ViewSize.create(mCameraView);
-                        mCurrentRatio = TuCameraAspectRatio.of(size.width,size.height);
-                        mRectSize = TuSdkSize.create(720, (int) (720.0 / mCurrentRatio.getX() * mCurrentRatio.getY()));
-                        mCurrentRenderSize = mRectSize;
-                        isNeedCreateTexture = true;
-                    }
-                });
+                TuSdkSize size = ViewSize.create(mCameraView);
+                mCurrentRatio = TuCameraAspectRatio.of(size.width,size.height);
+                mRectSize = TuSdkSize.create((int) PROCESS_WIDTH, (int) (PROCESS_WIDTH / mCurrentRatio.getX() * mCurrentRatio.getY()));
+                mCurrentRenderSize = mRectSize;
+                mPipeMediator.updateAspect(new SizeF(mCurrentRatio.getX(),mCurrentRatio.getY()));
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -257,7 +190,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 CURRENT_MAX_RECORD_DURATION = info.getDuration();
                 MAX_RECORD_DURATION = info.getDuration();
                 mCurrentDoubleViewVideoPath = info.getPath();
-                updateDoubleView(info.getPath());
+                updateDoubleView(info.getPath(),info.getAudioPath());
 
                 mCurrentAudioPath = info.getAudioPath();
 
@@ -287,6 +220,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 MAX_RECORD_DURATION = 15000;
                 mCurrentAudioPath = audioPath.getPath();
 
+                mPipeMediator.setBGM(mCurrentAudioPath,0L);
+
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -306,71 +241,11 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     }
 
-    private void initAudioMixer(String audioPath) {
-        MediaInspector inspector = MediaInspector.shared();
-        MediaInspector.MediaInfo info = inspector.inspect(audioPath);
-        for (MediaInspector.MediaInfo.AVItem item : info.streams){
-            if (item instanceof MediaInspector.MediaInfo.Audio){
-                AudioMixerItem audioItem = new AudioMixerItem(audioPath,item.bitrate,((MediaInspector.MediaInfo.Audio) item).channels,((MediaInspector.MediaInfo.Audio) item).sampleRate);
-                mAudioItem = audioItem;
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (mAudioMixer != null){
-                            mAudioMixer.close();
-                            mAudioMixer = null;
-                        }
-
-                        mAudioMixer = new FileRecordAudioMixer();
-                        Config config = new Config();
-                        config.setString(FileRecordAudioMixer.CONFIG_PATH,mAudioItem.getPath());
-//                        config.setNumber(FileRecordAudioMixer.CONFIG_SAMPLE_COUNT,mAudioItem.getSampleCount());
-                        config.setNumber(FileRecordAudioMixer.CONFIG_CHANNELS,mAudioItem.getChannels());
-                        config.setNumber(FileRecordAudioMixer.CONFIG_SAMPLE_RATE,mAudioItem.getSampleRate());
-                        mAudioMixer.open(config);
-
-                        ThreadHelper.runThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                int channels = mAudioItem.getChannels() == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
-
-                                int bufferSize = AudioTrack.getMinBufferSize(mAudioItem.getSampleRate(),channels,AudioFormat.ENCODING_PCM_16BIT);
-
-                                AudioTrack audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, mAudioItem.getSampleRate(), channels, AudioFormat.ENCODING_PCM_16BIT, bufferSize, AudioTrack.MODE_STREAM);
-                                audioTrack.setVolume(1f);
-                                audioTrack.play();
-                                int length = 0;
-
-                                byte[] buffer = new byte[bufferSize];
-
-                                while (true){
-                                    int res = mAudioMixer.getPCMForPlay(buffer,bufferSize);
-                                    if (res == -2){
-                                        break;
-                                    } else if (res < 0){
-                                        continue;
-                                    }
-                                    length = audioTrack.write(buffer,0,bufferSize);
-                                }
-
-                                audioTrack.stop();
-                                audioTrack.release();
-                                audioTrack = null;
-                            }
-                        });
-                    }
-                });
-
-
-                break;
-            }
-        }
-    }
 
     /**
      * @param path
      */
-    private void updateDoubleView(String path) {
+    private void updateDoubleView(String path,String audioPath) {
 
         RectF cameraRect = new RectF(0,0,1,1);
         RectF videoRect = new RectF(0,0,1,1);
@@ -469,38 +344,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
 
         long finalVideoDuration = videoDuration;
-        mRenderPool.runAsync(new Runnable() {
-            @Override
-            public void run() {
-                mFP.deleteFilter(RecordView.DOUBLE_VIEW_INDEX);
 
-                Filter filter = new Filter(mFP.getContext(), SimultaneouslyFilter.TYPE_NAME);
-                Config config = new Config();
-                config.setNumber(SimultaneouslyFilter.CONFIG_WIDTH,mCurrentRenderSize.width);
-                config.setNumber(SimultaneouslyFilter.CONFIG_HEIGHT,mCurrentRenderSize.height);
-
-                config.setString(SimultaneouslyFilter.CONFIG_PATH,path);
-                config.setString(SimultaneouslyFilter.CONFIG_FIRST_LAYER,SimultaneouslyFilter.INDEX_CAMERA);
-                config.setNumber(SimultaneouslyFilter.CONFIG_STRETCH,mCurrentVideoStretch);
-                config.setNumber(SimultaneouslyFilter.CONFIG_FRAMERATE,30);
-
-                filter.setConfig(config);
-
-                mFP.addFilter(RecordView.DOUBLE_VIEW_INDEX,filter);
-
-                SimultaneouslyFilter.PropertyHolder holder = new SimultaneouslyFilter.PropertyHolder();
-                holder.video_dst_rect = videoRect;
-                holder.camera_dst_rect = cameraRect;
-                SimultaneouslyFilter.PropertyBuilder builder = new SimultaneouslyFilter.PropertyBuilder();
-                builder.holder = holder;
-                filter.setProperty(PROP_RECT_PARAM,builder.makeRectProperty());
-
-                holder.current_pos = (int) mCurrentPlayerPos;
-
-                filter.setProperty(PROP_SEEK_PARAM,builder.makeSeekProperty());
-
-            }
-        });
+        mPipeMediator.setJoiner(path,audioPath,cameraRect,videoRect,0L);
 
         runOnUiThread(new Runnable() {
             @Override
@@ -604,19 +449,21 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
         @Override
         public SurfaceTexture requestSurfaceTexture() {
-            mSurfaceTexture = mOutputSurface.getSurfaceTexture();
+            mSurfaceTexture = mPipeMediator.getSurfaceTexture();
             return mSurfaceTexture;
         }
 
         @Override
         public void setInputRotation(ImageOrientation previewOrientation) {
             mPreviewOrientation = previewOrientation;
+            mPipeMediator.setInputRotation(previewOrientation.getDegree(),previewOrientation.isMirrored());
         }
 
         @Override
         public void setInputSize(TuSdkSize previewOptimizeSize) {
             mInputSize = previewOptimizeSize;
             mRecordView.setDisplaySize(mInputSize.width,mInputSize.height);
+            mPipeMediator.setInputSize(mInputSize.width,mInputSize.height);
 
         }
 
@@ -625,28 +472,17 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
         @Override
         public void onFrameAvailable(SurfaceTexture surfaceTexture) {
-            mRenderPool.runAsync(new Runnable() {
-                @Override
-                public void run() {
-                    onDrawFrame();
-                    long time = System.currentTimeMillis();
-                    long diff = time - lastTime;
-                    lastTime = time;
-                }
-            });
-//
-//
-            long time = System.currentTimeMillis();
-            long diff = time - cameraLastTime;
-            cameraLastTime = time;
-//            mRenderPool.runAsync(new Runnable() {
-//                @Override
-//                public void run() {
-//                    mSurfaceTexture.updateTexImage();
-//
-//                }
-//            });
-
+            if (!mPipeMediator.isReady()){
+                TuSdkSize size = ViewSize.create(mCameraView);
+                mCurrentRatio = TuCameraAspectRatio.of(size.width,size.height);
+                mPipeMediator.requestInit(getBaseContext(),mCameraView,new SizeF(mCurrentRatio.getX(),mCurrentRatio.getY()));
+                mRecordView.initFilterPipe(mPipeMediator.getBeautyManager());
+                mCurrentRenderSize = TuSdkSize.create((int) PROCESS_WIDTH, (int) (PROCESS_WIDTH / mCurrentRatio.getX() * mCurrentRatio.getY()));
+            }
+            Image image = mPipeMediator.onFrameAvailable();
+            if (!isRecording){
+                image.release();
+            }
         }
     };
 
@@ -662,193 +498,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private Image mCurrentRes;
 
-    private void onDrawFrame() {
+    private boolean initText = false;
 
-        long startTime = System.currentTimeMillis();
-
-        //采集到的视频源大小, 未旋转
-        TuSdkSize inputSize = mCamera.cameraSize().previewOptimizeSize();
-
-
-        final TuSdkSize procSize = (mRectSize == null ? TuSdkSize.create(720, (int) (720.0 / mCurrentRatio.getX() * mCurrentRatio.getY())) : mRectSize).evenSize();
-        mCurrentRenderSize = procSize;
-        StringBuilder log = new StringBuilder();
-        log.append("渲染信息: \n");
-
-        mSurfaceTexture.updateTexImage();
-        TuSdkSize size = inputSize.transforOrientation(mPreviewOrientation);
-
-//                TuCameraAspectRatio previewRatio = TuCameraAspectRatio.of(size.width,size.height);
-//                TuSdkSize finalProcSize = procSize;
-//                if (!previewRatio.equals(mCurrentRatio)){
-//                    finalProcSize = TuSdkSize.create(size.width ,size.width / mCurrentRatio.getX() * mCurrentRatio.getY());
-//                }
-        //FIXME: 没有释放时机
-        if (isNeedCreateTexture) {
-            GLES20.glGenTextures(mTexCount, mTextures, 0);
-
-            for (int idx = 0; idx < mTexCount; idx++) {
-
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextures[idx]);
-
-                GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER,
-                        GLES20.GL_LINEAR);
-                GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER,
-                        GLES20.GL_LINEAR);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
-                        GLES20.GL_CLAMP_TO_EDGE);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T,
-                        GLES20.GL_CLAMP_TO_EDGE);
-                GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D,
-                        0,
-                        GLES20.GL_RGBA,
-                        procSize.width, procSize.height,
-                        0,
-                        GLES20.GL_RGBA,
-                        GLES20.GL_UNSIGNED_BYTE,
-                        null);
-            }
-            isNeedCreateTexture = false;
-        }
-//        if (mTexture <0 || isNeedCreateTexture){
-//            int deleteTextureID = mTexture;
-//
-//            int[] textures = new int[1];
-//            GLES20.glGenTextures(1, textures, 0);
-//            int textureID = textures[0];
-//
-//            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureID);
-//
-//            GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER,
-//                    GLES20.GL_LINEAR);
-//            GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER,
-//                    GLES20.GL_LINEAR);
-//            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
-//                    GLES20.GL_CLAMP_TO_EDGE);
-//            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T,
-//                    GLES20.GL_CLAMP_TO_EDGE);
-//            GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D,
-//                    0,
-//                    GLES20.GL_RGBA,
-//                    procSize.width, procSize.height,
-//                    0,
-//                    GLES20.GL_RGBA,
-//                    GLES20.GL_UNSIGNED_BYTE,
-//                    null);
-//
-//            mTexture = textureID;
-//
-//            if (deleteTextureID != -1){
-//                int[] deleteTextures = new int[1];
-//                textures[0] = deleteTextureID;
-//                GLES20.glDeleteTextures(1,deleteTextures,0);
-//            }
-////
-////                    GLES20.glFinish();
-//
-//            isNeedCreateTexture = false;
-//        }
-
-        mTexture = mTextures[mTexIdx];
-        Log.e("DEBUG ", "zzzx call: " + cnt++ + ", tex: " + mTextures[mTexIdx] + ", idx: " + mTexIdx);
-
-        mTexIdx = (mTexIdx + 1) % mTexCount;
-
-        //GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTexture);
-
-        int drawRes = mOutputSurface.drawImageTo(mTexture, size.width,size.height, procSize.width, procSize.height);
-//                GLES20.glFinish();
-        long surfaceDrawDuration = System.currentTimeMillis() - startTime;
-        log.append("采集分辨率 : ").append(inputSize).append("\n");
-        log.append("渲染分辨率 : ").append(procSize).append(" \n");
-        log.append("OutputSurface 处理时长 : ").append(surfaceDrawDuration).append(" \n");
-        if (drawRes < 0) return;
-        long inputPos = System.currentTimeMillis();
-        Image in = new Image(mTexture, procSize.width, procSize.height,inputPos);
-//                Image in = new Image(testBitmap,System.currentTimeMillis());
-//                Bitmap bitmap = in.toBitmap();
-        double agree = mOrientationListener.getDeviceAngle() + InterfaceOrientation.Portrait.getDegree();
-
-        boolean enableMarkSence = false;
-        if (mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.Reshape)) != null
-                || mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.CosmeticFace)) != null){
-
-
-            enableMarkSence = mRecordView.checkEnableMarkSence();
-        }
-
-        in.setMarkSenceEnable(enableMarkSence);
-        in.setAgree(agree);
-        frameCount ++;
-        Image out = mFP.process(in);
-        in.release();
-        long fpProcessDuration = System.currentTimeMillis() - startTime;
-        log.append("FilterPipe 处理时长 : ").append(fpProcessDuration).append(" \n");
-        log.append("degree : ").append(agree).append(" \n");
-
-        mCurrentRes = out;
-        try {
-            if (mCurrentPreviewRectF == null || mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX) != null)
-                mCameraView.updateImage(out);
-            else mCameraView.updateImage(out,mCurrentPreviewRectF);
-            long processDuration = System.currentTimeMillis() - startTime;
-            log.append("当前帧渲染总时长 : ").append(processDuration).append("\n");
-//            double fps = 1000.0 / processDuration;
-//            log.append("当前渲染帧率 : ").append(fps).append("\n");
-//            log.append("当前渲染帧率 : ").append(fps).append("\n");
-
-            if (mFileRecorder != null && isRecording){
-                mRecordPool.runAsync(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (mFileRecorder != null && isRecording){
-                            mCurrentFragmentDuration = inputPos - mRecordingStart;
-                            mCurrentFragmentDuration *= mCurrentStretch;
-                            mFileRecorder.sendImage(out,mCurrentFragmentDuration);
-                            float progress = (mCurrentFragmentDuration + mCurrentDuration) / (float) CURRENT_MAX_RECORD_DURATION;
-                            if (progress > 1){
-                                if (!isRecordCompleted){
-                                    isRecordCompleted = true;
-                                    runOnUiThread(new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            mRecordView.updateMovieRecordState(RecordView.RecordState.RecordCompleted,true);
-
-                                        }
-                                    });
-                                }
-                            } else {
-                                runOnUiThread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        mRecordView.updateViewOnMovieRecordProgressChanged(progress,mCurrentFragmentDuration);
-                                    }
-                                });
-
-                            }
-                        }
-
-                        out.release();
-                    }
-                });
-            } else {
-                out.release();
-            }
-
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    ((TextView) findViewById(R.id.log)).setText(log.toString());
-                }
-            });
-            processSum += processDuration;
-            if (frameCount % 150 == 0){
-                double avg = processSum / (double)frameCount;
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
 
     /**
      * 授予权限的结果，在对话结束后调用
@@ -867,13 +518,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                     @Override
                     public void run() {
                         init();
-                        mOrientationListener = new TuSdkOrientationEventListener(MovieRecordFullScreenActivity.this);
-                        mOrientationListener.enable();
 
                         startCameraCapture();
-                        while (!mCameraView.isAvailable()){
-                        }
-                        mCameraView.onSurfaceTextureAvailable(mCameraView.getSurfaceTexture(),mCameraView.getWidth(),mCameraView.getHeight());
                     }
                 });
 
@@ -910,7 +556,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         }
     };
 
-    private Bitmap testBitmap;
+    private SensorHelper mSensorHelper;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -919,17 +565,18 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         Engine engine = Engine.getInstance();
         engine.init(null);
         if (PermissionUtils.hasRequiredPermissions(this, getRequiredPermissions())){
+            mSensorHelper = new SensorHelper(this);
             init();
 
-            mOrientationListener = new TuSdkOrientationEventListener(this);
-            mOrientationListener.enable();
+
+
         } else {
             PermissionUtils.requestRequiredPermissions(this, getRequiredPermissions());
         }
     }
 
     private void init() {
-        initFilterPipe();
+        initPipe();
         initCamera();
         initRecordView();
     }
@@ -943,92 +590,76 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
     private void initRecordView() {
         mRecordView = findViewById(R.id.lsq_movie_record_view);
         mRecordView.init(getSupportFragmentManager(),getLifecycle());
-        mRecordView.initFilterPipe(mFP,mRenderPool);
         mRecordView.initFilterGroupsViews(getSupportFragmentManager(),getLifecycle(), Constants.getCameraFilters(true));
         mRecordView.setUpCamera(this,mCamera);
-        mRecordView.setCameraView(mCameraView);
         mRecordView.setDelegate(new RecordView.TuSDKMovieRecordDelegate() {
 
             @Override
             public void changedRect(RectF rectF) {
-                mCurrentPreviewRectF = rectF;
-
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        TuSdkSize wrapSize = mRecordView.getWrapSize();
-                        mRectSize = TuSdkSize.create(((int) (wrapSize.width * rectF.width())), ((int) (wrapSize.height * rectF.height())));
-
-//                        TuCameraAspectRatio ratio = TuCameraAspectRatio.of(((int) (rectF.width() * 1000)), ((int) (rectF.height() * 1000)));
-//                        mRectRatio = ratio;
-                        isNeedCreateTexture = true;
-                    }
-                });
+                TuSdkSize wrapSize = mRecordView.getWrapSize();
+                mRectSize = TuSdkSize.create(((int) (wrapSize.width * rectF.width())), ((int) (wrapSize.height * rectF.height())));
+                mPipeMediator.changedRect(rectF);
+                mPipeMediator.updateAspect(new SizeF(mRectSize.width,mRectSize.height));
 
             }
 
+            private boolean isTimeOut = false;
+
             @Override
             public boolean startRecording() {
-                float progress = (mCurrentFragmentDuration + mCurrentDuration) / (float) CURRENT_MAX_RECORD_DURATION;
-                if (progress>1){
+                if (isTimeOut){
                     mRecordView.updateMovieRecordState(RecordView.RecordState.RecordTimeOut,false);
-                    return false;
                 }
+                if (isRecordCompleted) return false;
 
-                mRecordPool.runAsync(new Runnable() {
+                String outputPath = getOutputPath();
+                Bitmap watermark = BitmapHelper.getRawBitmap(TuSdkContext.context(),R.raw.sample_watermark);
+                mAudioRecord = new AudioRecord(mPipeMediator);
+                mAudioRecord.updateMicState(true);
+                mPipeMediator.startRecord(outputPath, mCurrentRenderSize.width, mCurrentRenderSize.height, watermark, 1, new RecordManager.RecordListener() {
                     @Override
-                    public void run() {
-                        if (mFileRecorder == null ) {
-                            mFileRecorder = new FileExporter();
-                            String outputFilePath = getTempOutputPath();
-                            mCurrentFragment = new VideoFragmentItem();
-                            mCurrentFragment.path = outputFilePath;
-                            mVideoLists.add(mCurrentFragment);
-                            FileExporter.Config config = new FileExporter.Config();
-                            config.channels = 2;
-                            TuSdkSize size = mCurrentRenderSize.evenSize();
-                            config.height = size.height;
-                            config.width = size.width;
-                            config.sampleRate = 44100;
-//                            config.stretch = mCurrentStretch;
-                            config.savePath = outputFilePath;
-                            config.pitchType = mCurrentAudioEffect;
-                            config.watermark = BitmapHelper.getRawBitmap(MovieRecordFullScreenActivity.this,R.raw.sample_watermark);
-                            config.watermarkPosition = 1;
-                            boolean res = mFileRecorder.open(config);
-                            if (!res){
-                                return;
-                            }
+                    public void onProgress(float progress, long ts) {
+                        TLog.e("[Debug] record progress %s %s",progress,ts);
+                        mRecordView.updateViewOnMovieRecordProgressChanged(progress,ts);
+                    }
 
-                        }
-                        if (!TextUtils.isEmpty(mCurrentAudioPath)) mAudioRecord.initAudioMixer(mCurrentAudioPath,mCurrentPlayerPos);
-                        if (mRecordingStart == 0 )mRecordingStart = System.currentTimeMillis();
+                    @Override
+                    public void onRecordTimeOut() {
+                        isRecordCompleted = true;
+                        isTimeOut = true;
+                        mRecordView.updateMovieRecordState(RecordView.RecordState.RecordCompleted,true);
+                    }
 
-
-                        mAudioRecord.startRecord(mFileRecorder);
+                    @Override
+                    public void onRecordStart() {
                         isRecording = true;
+                        if (mPipeMediator.hasJoiner()){
+                            mPipeMediator.setJoinerPlay(true);
+                        } else if (mPipeMediator.hasBGM()) {
+                            mPipeMediator.setBGMPlay(true);
+                        }
+                    }
 
-                        mRenderPool.runSync(new Runnable() {
-                            @Override
-                            public void run() {
-                                Filter filter = mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX);
-                                if (filter == null) return;
-                                siBuilder.holder.enable_play = true;
-                                filter.setProperty(SimultaneouslyFilter.PROP_PARAM,siBuilder.makeProperty());
-                            }
-                        });
+                    @Override
+                    public void onRecordPause() {
+                        isRecording = false;
+                        if (isTimeOut) return;
+                        mRecordView.updateMovieRecordState(RecordView.RecordState.Paused,false);
+                        if (mPipeMediator.hasJoiner()){
+                            mPipeMediator.setJoinerPlay(false);
+                        } else if (mPipeMediator.hasBGM()){
+                            mPipeMediator.setBGMPlay(false);
+                        }
+                    }
 
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                mRecordView.updateMovieRecordState(RecordView.RecordState.Recording,isRecording);
-                                isRecordCompleted = false;
-                                if (mVideoSelectView != null)
-                                    mVideoSelectView.setVisibility(View.GONE);
-                            }
-                        });
+                    @Override
+                    public void onRecordStop() {
+                        isTimeOut = false;
+                        isRecordCompleted = false;
                     }
                 });
+                mAudioRecord.startRecord();
+
                 return true;
             }
 
@@ -1039,48 +670,13 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
             @Override
             public void pauseRecording() {
-                mRecordPool.runAsync(new Runnable() {
-                    @Override
-                    public void run() {
-                        isRecording = false;
-                        stopAudioRecording();
-                        if (mFileRecorder != null)
-                            mFileRecorder.close();
-
-                        mAudioRecord.resetAudioMixer();
-
-                        mCurrentFragment.fragmentDuration = mCurrentFragmentDuration;
-                        mFileRecorder = null;
-                        mRecordingStart = 0L;
-                        mCurrentDuration += mCurrentFragmentDuration;
-
-                        mCurrentFragmentDuration = 0L;
-
-                        mCurrentPlayerPos = mCurrentDuration;
-
-                        mRenderPool.runSync(new Runnable() {
-                            @Override
-                            public void run() {
-                                Filter filter = mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX);
-                                if (filter == null) return;
-                                siBuilder.holder.enable_play = false;
-                                filter.setProperty(SimultaneouslyFilter.PROP_PARAM,siBuilder.makeProperty());
-                            }
-                        });
-
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                mRecordView.updateMovieRecordState(RecordView.RecordState.Paused,isRecording);
-                            }
-                        });
-                    }
-                });
+                stopAudioRecording();
+                mPipeMediator.pauseRecord();
             }
 
             @Override
             public boolean stopRecording() {
-                if (mCurrentDuration < Constants.MIN_RECORDING_TIME * 1000 * mCurrentStretch){
+                if (mPipeMediator.getCurrentRecordDuration() < Constants.MIN_RECORDING_TIME * 1000 * mCurrentStretch){
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -1091,111 +687,12 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                     return false;
                 }
 
-                mRecordPool.runAsync(new Runnable() {
-                    @Override
-                    public void run() {
-                        String outputPath = getOutputPath();
-                        String tempPath = getTempOutputPath();
-                        if (mVideoLists.size() > 1){
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    mRecordView.updateMovieRecordState(RecordView.RecordState.Saving,isRecording);
-                                }
-                            });
-                            String[] paths = new String[mVideoLists.size()];
-                            for (int i =0;i<mVideoLists.size();i++) paths[i] = mVideoLists.get(i).path;
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q){
-                                FileExporter.MergeVideoFiles(tempPath, paths);
-                                long now = TuSdkDate.create().getTimeInMillis();
-                                ContentValues values = new ContentValues();
-                                values.put(MediaStore.Images.Media.DATE_TAKEN, now);
-                                values.put(MediaStore.Images.Media.DATE_MODIFIED, now / 1000);
-                                values.put(MediaStore.Images.Media.DATE_ADDED, now / 1000);
-                                values.put(MediaStore.Images.Media.DISPLAY_NAME,outputPath.substring(outputPath.lastIndexOf("/")));
-                                values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-                                values.put(MediaStore.MediaColumns.IS_PENDING, 1);
-                                Uri uri = TuSdkContext.context().getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
-                                try {
-                                    OutputStream outputStream = TuSdkContext.context().getContentResolver().openOutputStream(uri);
-                                    File cacheFile = new File(tempPath);
-                                    InputStream stream = FileHelper.getFileInputStream(cacheFile);
-                                    FileHelper.copy(stream,outputStream);
-                                    FileHelper.safeClose(stream);
-                                    FileHelper.safeClose(outputStream);
-                                    values.clear();
-                                    values.put(MediaStore.MediaColumns.IS_PENDING, 0);
-                                    TuSdkContext.context().getContentResolver().update(uri, values, null, null);
-                                } catch (FileNotFoundException e) {
-                                    e.printStackTrace();
-                                }
-                            } else {
-                                FileExporter.MergeVideoFiles(outputPath, paths);
-                            }
+                mPipeMediator.stopRecord();
 
-
-                        } else {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q){
-                                long now = TuSdkDate.create().getTimeInMillis();
-                                ContentValues values = new ContentValues();
-                                values.put(MediaStore.Images.Media.DATE_TAKEN, now);
-                                values.put(MediaStore.Images.Media.DATE_MODIFIED, now / 1000);
-                                values.put(MediaStore.Images.Media.DATE_ADDED, now / 1000);
-                                values.put(MediaStore.Images.Media.DISPLAY_NAME,outputPath.substring(outputPath.lastIndexOf("/")));
-                                values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-                                values.put(MediaStore.MediaColumns.IS_PENDING, 1);
-                                Uri uri = TuSdkContext.context().getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
-                                try {
-                                    OutputStream outputStream = TuSdkContext.context().getContentResolver().openOutputStream(uri);
-                                    File cacheFile = new File(mVideoLists.get(0).path);
-                                    InputStream stream = FileHelper.getFileInputStream(cacheFile);
-                                    FileHelper.copy(stream,outputStream);
-                                    FileHelper.safeClose(stream);
-                                    FileHelper.safeClose(outputStream);
-                                    values.clear();
-                                    values.put(MediaStore.MediaColumns.IS_PENDING, 0);
-                                    TuSdkContext.context().getContentResolver().update(uri, values, null, null);
-                                } catch (FileNotFoundException e) {
-                                    e.printStackTrace();
-                                }
-                            } else {
-                                boolean renameSuccess = FileHelper.rename(new File(mVideoLists.get(0).path),new File(outputPath));
-                            }
-
-
-
-//                    FileHelper.delete(new File(mVideoLists.get(0).path));
-                        }
-
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                Intent intent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
-                                Uri uri = Uri.fromFile(new File(outputPath));
-                                intent.setData(uri);
-                                sendBroadcast(intent);
-                                mRecordView.updateMovieRecordState(RecordView.RecordState.SaveCompleted,isRecording);
-                                if (mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX) != null){
-                                    mVideoSelectView.setVisibility(View.VISIBLE);
-                                }
-                            }
-                        });
-                        mVideoLists.clear();
-                        mCurrentDuration = 0;
-                        allAudioDuration = 0;
-                        mCurrentPlayerPos = 0;
-                    }
-                });
-
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        Filter filter = mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX);
-                        if (filter == null) return;
-                        siBuilder.holder.current_pos = 0;
-                        filter.setProperty(PROP_SEEK_PARAM,siBuilder.makeSeekProperty());
-                    }
-                });
+                if (mPipeMediator.hasJoiner()){
+                    mPipeMediator.joinerSeek(0L);
+                    mPipeMediator.setJoinerPlay(false);
+                }
 
                 return true;
             }
@@ -1206,98 +703,33 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             }
 
             @Override
-            public void changedAudioEffect(String type) {
-                mAudioRecord.updateAudioPitch(type);
+            public void changedAudioEffect(AudioConvert.AudioPitchType type) {
+                mPipeMediator.setSoundPitchType(type);
             }
 
             @Override
             public void changedSpeed(double speed) {
-                mCurrentStretch = speed;
-                if (mCurrentStretch == 2.0){
-                    mCurrentVideoStretch = 0.5;
-                } else if (mCurrentStretch == 1.5){
-                    mCurrentVideoStretch = 0.75;
-                } else if (mCurrentStretch == 0.75){
-                    mCurrentVideoStretch = 1.5;
-                } else if (mCurrentStretch == 0.5){
-                    mCurrentVideoStretch = 2.0;
-                } else {
-                    mCurrentVideoStretch = mCurrentStretch;
-                }
-
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX) != null){
-                            updateDoubleView(mCurrentDoubleViewVideoPath);
-                        }
-                    }
-                });
-
-                mAudioRecord.updateAudioStretch(mCurrentStretch);
-//                CURRENT_MAX_RECORD_DURATION = (long) (MAX_RECORD_DURATION / speed);
+                mPipeMediator.setRecordSpeed(speed);
             }
 
             @Override
             public void changedRatio(TuSdkSize ratio) {
-
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        TuCameraAspectRatio currentRatio = TuCameraAspectRatio.of(ratio.width,ratio.height);
-                        if (!currentRatio.equals(mCurrentRatio)){
-                            mCurrentRatio = currentRatio;
-//                            mCamera.cameraSize().setAspectRatio(mCurrentRatio);
-//                            mCamera.stopPreview();
-//                            mCamera.startPreview();
-
-                            isNeedCreateTexture = true;
-                        }
-                    }
-                });
+                TuCameraAspectRatio currentRatio = TuCameraAspectRatio.of(ratio.width,ratio.height);
+                mPipeMediator.updateAspect(new SizeF(currentRatio.getX(),currentRatio.getY()));
             }
 
             @Override
             public int getFragmentSize() {
-                return mVideoLists.size();
+                return mPipeMediator.getCurrentRecordFragmentSize();
             }
 
             @Override
             public void popFragment() {
-                if (mVideoLists.size() == 0) return;
-                VideoFragmentItem item = mVideoLists.get(mVideoLists.size() - 1);
-                mCurrentDuration -= item.fragmentDuration;
-                mVideoLists.remove(item);
-                isRecordCompleted = false;
-                mCurrentPlayerPos = mCurrentDuration;
+                mPipeMediator.popLastFragment();
 
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        Filter filter = mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX);
-                        if (filter == null) {
-                            if (mCurrentDuration == 0){
-                                runOnUiThread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        mRecordView.updateAudioNameState(View.VISIBLE);
-                                    }
-                                });
-                            }
-                            return;
-                        }
-                        siBuilder.holder.current_pos = (int) mCurrentDuration;
-                        filter.setProperty(PROP_SEEK_PARAM,siBuilder.makeSeekProperty());
-                        if (mVideoLists.isEmpty()){
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    mVideoSelectView.setVisibility(View.VISIBLE);
-                                }
-                            });
-                        }
-                    }
-                });
+                if (mPipeMediator.hasJoiner()){
+                    mPipeMediator.joinerSeek(mPipeMediator.getCurrentRecordDuration());
+                }
             }
 
             @Override
@@ -1309,24 +741,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             @Override
             public void updateDoubleViewMode(RecordView.DoubleViewMode mode) {
                 if (mode == RecordView.DoubleViewMode.None){
-                    mRenderPool.runSync(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (mFP.getFilter(RecordView.DOUBLE_VIEW_INDEX) != null){
-                                mFP.deleteFilter(RecordView.DOUBLE_VIEW_INDEX);
-                                mCurrentAudioPath = "";
-                                CURRENT_MAX_RECORD_DURATION = 15000;
-                                MAX_RECORD_DURATION = 15000;
-                                runOnUiThread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        mRecordView.updateMinPosition(Constants.MIN_RECORDING_TIME / 15.f);
-                                    }
-                                });
-                            }
-
-                        }
-                    });
+                    mPipeMediator.deleteJoiner();
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -1338,7 +753,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                     if (!TextUtils.isEmpty(mCurrentDoubleViewVideoPath)){
                         if (mCurrentMode == mode) return;
                         mCurrentMode = mode;
-                        updateDoubleView(mCurrentDoubleViewVideoPath);
+                        updateDoubleView(mCurrentDoubleViewVideoPath,mCurrentAudioPath);
                     }
 
                 }
@@ -1357,40 +772,18 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             public void updateMicState(boolean isOpen) {
                 if (mAudioRecord != null) mAudioRecord.updateMicState(isOpen);
             }
+
+            @Override
+            public void changeRenderWidth(double width) {
+                mPipeMediator.setRenderWidth((int) width);
+            }
         });
 
 
     }
 
-    private void initFilterPipe() {
-
-        mRenderPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                mGLCtx = new GLContext();
-
-                mGLCtx.createForRender(Engine.getInstance().getMainGLContext().getEGLContext());
-
-                mGLCtx.makeCurrent();
-
-                mOutputSurface = new OutputSurface();
-
-                mOutputSurface.create(mGLCtx);
-
-                mFP = new FilterPipe();
-
-                isInitSuccess = mFP.create();
-            }
-        });
-
-        mRecordPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                mGLCtx.makeCurrent();
-
-                mAudioRecord = new AudioRecord();
-            }
-        });
+    private void initPipe() {
+        mPipeMediator = PipeMediator.getInstance();
     }
 
     private void initCamera() {
@@ -1400,82 +793,45 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
         mCamera.setSurfaceHolder(mCameraHolder);
 
-        mCameraView.init(Engine.getInstance().getMainGLContext());
-
-        mCameraView.setBackgroundColor(Color.BLACK);
-
         mCameraView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
                 if (mCurrentRatio == null){
                     TuSdkSize size = ViewSize.create(mCameraView);
                     mCurrentRatio = TuCameraAspectRatio.of(size.width,size.height);
-                    mRecordView.setWrapSize(TuSdkSize.create(720,720 / mCurrentRatio.getX() * mCurrentRatio.getY()));
+                    mRecordView.setWrapSize(TuSdkSize.create((int) PROCESS_WIDTH,(int) ((double)mCurrentRatio.getY() * PROCESS_WIDTH / (double) mCurrentRatio.getX())));
                 }
             }
         });
 
         mCamera.setFullFrame(false);
 
-//        mCamera.setPreviewCallback(new Camera.PreviewCallback() {
-//            @Override
-//            public void onPreviewFrame(byte[] data, Camera camera) {
-//
-//                Log.e("ss", "setPreviewCallback onPreviewFrame  ");
-//
-//                if (mFP != null){
-//                    Camera.Size size = camera.getParameters().getPreviewSize();
-//                    Log.e("ss", "setPreviewCallback onPreviewFrame "+ size.width + "x" + size.height);
-//
-//                    // front rotation == -90 isflip == true
-//                    // back rotation == 90 isflip == false
-//
-//
-//                    mFP.updateDetectBuffer(data,size.width,size.height,size.width,-90);
-//                }
-//
-//                camera.addCallbackBuffer(data);
-//            }
-//        });
-
-//        mCamera.setPreviewCallback(new Camera.PreviewCallback() {
-//            @Override
-//            public void onPreviewFrame(byte[] data, Camera camera) {
-//
-//                Log.e("ss", "setPreviewCallback onPreviewFrame  ");
-//
-//                if (mFP != null){
-//                    Camera.Size size = camera.getParameters().getPreviewSize();
-//                    Log.e("ss", "setPreviewCallback onPreviewFrame "+ size.width + "x" + size.height);
-//
-//                    // front rotation == -90 isflip == true
-//                    // back rotation == 90 isflip == false
-//
-//
-//                    mFP.updateDetectBuffer(data,size.width,size.height,size.width,-90);
-//                }
-//
-//                camera.addCallbackBuffer(data);
-//            }
-//        });
-
-
         if (!mCamera.prepare()) return;
 
 
 
 
-        mCamera.cameraSize().setPreviewSize(TuSdkSize.create(1280,720));
+        mCamera.cameraSize().setPreviewSize(PREVIEW_SIZE);
 //        mCamera.cameraSize().setPreviewSize(size);
 
 
 //        mCamera.cameraSize().setAspectRatio(mCurrentRatio);
 
+
         mCamera.cameraBuilder().setDefaultFacing(CameraConfigs.CameraFacing.Front);
 
-        mCamera.cameraOrient().setOutputImageOrientation(InterfaceOrientation.Portrait);
+        mCamera.cameraOrient().setDisplayRotation(getWindowManager().getDefaultDisplay().getRotation());
 
-        mCamera.cameraOrient().setHorizontallyMirrorFrontFacingCamera(true);
+        mCamera.cameraOrient().setOutputImageOrientation(InterfaceOrientation.Portrait);
+//        mCamera.cameraOrient().setHorizontallyMirrorFrontFacingCamera(false);
+
+
+//        if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT){
+//        } else {
+//            mCamera.cameraOrient().setHorizontallyMirrorFrontFacingCamera(false);
+//        }
+
+
 
         mCamera.setCameraListener(new TuCamera.TuCameraListener() {
             @Override
@@ -1495,25 +851,9 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             @Override
             public void onCameraShotBitmap(TuSdkResult data) {
                 super.onCameraShotBitmap(data);
-                data.image = BitmapHelper.imageCorpResize(data.image,TuSdkSize.create(720,720 / mCurrentRatio.getX() * mCurrentRatio.getY()),ImageOrientation.Up,false);
+                data.image = BitmapHelper.imageCorpResize(data.image,TuSdkSize.create((int) PROCESS_WIDTH,(int) (PROCESS_WIDTH / mCurrentRatio.getX() * mCurrentRatio.getY())),ImageOrientation.Up,false);
 
-                mRenderPool.runSync(new Runnable() {
-                    @Override
-                    public void run() {
-                        Image input = new Image(data.image,System.currentTimeMillis());
-
-                        boolean enableMarkSence = false;
-                        if (mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.Reshape)) != null
-                                || mFP.getFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.CosmeticFace)) != null){
-                            enableMarkSence = mRecordView.checkEnableMarkSence();
-                        }
-                        input.setMarkSenceEnable(enableMarkSence);
-                        double agree = mOrientationListener.getDeviceAngle() + InterfaceOrientation.Portrait.getDegree();
-                        input.setAgree(agree);
-                        Image output = mFP.process(input);
-                        mShotPhoto = output.toBitmap();
-                    }
-                });
+                mShotPhoto = mPipeMediator.processBitmap(data.image);
 
                 try {
                     Bitmap photo = mShotPhoto;
@@ -1566,14 +906,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (mAudioRecord != null) mAudioRecord.release();
-        mRenderPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                mCameraView.release();
-                mFP.clearFilters();
-                mFP.destroy();
-            }
-        });
+        if (mSensorHelper != null) mSensorHelper.release();
+
         Engine.getInstance().release();
 
     }

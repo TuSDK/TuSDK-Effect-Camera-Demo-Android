@@ -482,6 +482,10 @@
     <string name="lsq_double_view_more">布局</string>
     <string name="lsq_mic_layer">麦克风</string>
 
+    <string name="lsq_render_layer">渲染大小</string>
+    <string name="lsq_render_720P">720P</string>
+    <string name="lsq_render_1080P">1080P</string>
+
     <string name="lsq_view_in_view">抢镜</string>
     <string name="lsq_top_bottom">上下</string>
     <string name="lsq_left_right">左右</string>

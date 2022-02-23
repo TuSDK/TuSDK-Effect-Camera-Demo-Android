@@ -57,10 +57,9 @@ public class EyeshadowPanel extends BasePanel {
             @Override
             public void onItemClick(int pos, EyeshadowAdapter.EyeshadowViewHolder holder, CosmeticTypes.EyeshadowType item) {
                 mCurrentType = item;
-                mController.getProperty().eyeshadowEnable = 1;
-                mController.getProperty().eyeshadowId = StickerLocalPackage.shared().getStickerGroup(item.mGroupId).stickers.get(0).stickerId;
-                mController.getProperty().eyeshadowOpacity = mController.getEffect().getFilterArg("eyeshadowAlpha").getPrecentValue();
-                mController.updateProperty();
+                mController.getBeautyManager().setEyeshadowEnable(true);
+                mController.getBeautyManager().setEyeshadowStickerId(StickerLocalPackage.shared().getStickerGroup(item.mGroupId).stickers.get(0).stickerId);
+                mController.getBeautyManager().setEyeshadowOpacity(mController.getEffect().getFilterArg("eyeshadowAlpha").getPrecentValue());
                 mAdapter.setCurrentPos(pos);
                 if (onPanelClickListener != null) onPanelClickListener.onClick(mType);
 
@@ -78,8 +77,7 @@ public class EyeshadowPanel extends BasePanel {
     @Override
     public void clear() {
         mCurrentType = null;
-        mController.getProperty().eyeshadowEnable = 0;
-        mController.updateProperty();
+        mController.getBeautyManager().setEyeshadowEnable(false);
         mAdapter.setCurrentPos(-1);
         if (onPanelClickListener != null) onPanelClickListener.onClear(mType);
     }

@@ -55,10 +55,9 @@ public class FacialPanel extends BasePanel {
             @Override
             public void onItemClick(int pos, FacialAdapter.FacialViewHolder holder, CosmeticTypes.FacialType item) {
                 mCurrentType = item;
-                mController.getProperty().facialId = StickerLocalPackage.shared().getStickerGroup(mCurrentType.mGroupId).stickers.get(0).stickerId;
-                mController.getProperty().facialEnable = 1;
-                mController.getProperty().facialOpacity = mController.getEffect().getFilterArg("facialAlpha").getPrecentValue();
-                mController.updateProperty();
+                mController.getBeautyManager().setFacialEnable(true);
+                mController.getBeautyManager().setFacialStickerId(StickerLocalPackage.shared().getStickerGroup(mCurrentType.mGroupId).stickers.get(0).stickerId);
+                mController.getBeautyManager().setFacialOpacity(mController.getEffect().getFilterArg("facialAlpha").getPrecentValue());
                 mAdapter.setCurrentPos(pos);
                 if (onPanelClickListener!= null)onPanelClickListener.onClick(mType);
             }
@@ -76,8 +75,7 @@ public class FacialPanel extends BasePanel {
     @Override
     public void clear() {
         mCurrentType = null;
-        mController.getProperty().facialEnable = 0;
-        mController.updateProperty();
+        mController.getBeautyManager().setFacialEnable(false);
         mAdapter.setCurrentPos(-1);
         if (onPanelClickListener != null) onPanelClickListener.onClear(mType);
     }

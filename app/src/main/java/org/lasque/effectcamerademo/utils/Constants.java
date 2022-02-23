@@ -11,6 +11,7 @@ package org.lasque.effectcamerademo.utils;
 import org.lasque.tusdkpulse.core.seles.tusdk.FilterGroup;
 import org.lasque.tusdkpulse.core.seles.tusdk.FilterLocalPackage;
 import org.lasque.effectcamerademo.R;
+import org.lasque.tusdkpulse.core.utils.TLog;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -68,6 +69,8 @@ public class Constants {
             FilterGroup cartoon = FilterLocalPackage.shared().getFilterGroup(252);
             result.add(cartoon);
         }
+        TLog.e("[Debug] filter list %s",result);
+
         return result;
     }
 

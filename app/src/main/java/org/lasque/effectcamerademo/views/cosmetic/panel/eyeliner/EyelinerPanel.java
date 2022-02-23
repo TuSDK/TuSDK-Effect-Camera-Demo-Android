@@ -57,10 +57,9 @@ public class EyelinerPanel extends BasePanel {
             @Override
             public void onItemClick(int pos, EyelinerAdapter.EyelinerViewHolder holder, CosmeticTypes.EyelinerType item) {
                 mCurrentType = item;
-                mController.getProperty().eyelineEnable = 1;
-                mController.getProperty().eyelineId = StickerLocalPackage.shared().getStickerGroup(mCurrentType.mGroupId).stickers.get(0).stickerId;
-                mController.getProperty().eyeshadowOpacity = mController.getEffect().getFilterArg("eyelineAlpha").getPrecentValue();
-                mController.updateProperty();
+                mController.getBeautyManager().setEyelineEnable(true);
+                mController.getBeautyManager().setEyelineStickerId(StickerLocalPackage.shared().getStickerGroup(mCurrentType.mGroupId).stickers.get(0).stickerId);
+                mController.getBeautyManager().setEyelineOpacity(mController.getEffect().getFilterArg("eyelineAlpha").getPrecentValue());
                 mAdapter.setCurrentPos(pos);
                 if (onPanelClickListener != null) onPanelClickListener.onClick(mType);
 
@@ -78,8 +77,7 @@ public class EyelinerPanel extends BasePanel {
     @Override
     public void clear() {
         mCurrentType = null;
-        mController.getProperty().eyelineEnable = 0;
-        mController.updateProperty();
+        mController.getBeautyManager().setEyelineEnable(false);
         mAdapter.setCurrentPos(-1);
         if (onPanelClickListener != null) onPanelClickListener.onClear(mType);
     }

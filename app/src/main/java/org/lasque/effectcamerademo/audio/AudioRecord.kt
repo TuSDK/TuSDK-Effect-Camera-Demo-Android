@@ -21,6 +21,8 @@ import com.tusdk.pulse.audio.processors.AudioPitchProcessor
 import com.tusdk.pulse.audio.processors.AudioStretchProcessor
 import com.tusdk.pulse.filter.FileExporter
 import com.tusdk.pulse.filter.FileRecordAudioMixer
+import org.lasque.tubeautysetting.AudioConvert
+import org.lasque.tubeautysetting.PipeMediator
 import org.lasque.tusdkpulse.core.utils.TLog
 import org.lasque.tusdkpulse.core.utils.ThreadHelper
 import java.util.*
@@ -36,67 +38,31 @@ import java.util.concurrent.LinkedBlockingQueue
  * @Copyright    (c) 2020 tusdk.com. All rights reserved.
  *
  */
-class AudioRecord {
-
-    data class AudioItem(var buffer : ByteArray,val length : Int,val time : Long) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other !is AudioItem) return false
-
-            if (!buffer.contentEquals(other.buffer)) return false
-            if (length != other.length) return false
-            if (time != other.time) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = buffer.contentHashCode()
-            result = 31 * result + length
-            result = 31 * result + time.hashCode()
-            return result
-        }
-    }
-    private val mOutputQueue : LinkedBlockingQueue<AudioItem> = LinkedBlockingQueue(Int.MAX_VALUE)
-
+class AudioRecord(pipe: PipeMediator) {
     private val mRecordRunnable = Runnable {
-        if (isOpenMic){
+        if (isOpenMic) {
             if (mAudioRecord == null) return@Runnable
 
             val record = mAudioRecord!!
             var lastTime = System.currentTimeMillis()
-            while (mAudioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING){
-                val buffer = ByteArray(mBufferSize)
-                val total = read(record,buffer)
-                TLog.e("record read total %s",total)
+            while (mAudioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING && !ThreadHelper.isInterrupted()) {
+                val buffer = ByteArray(4096)
+                val total = read(record, buffer)
                 val currentAudioTime = System.currentTimeMillis() - mRecordingStart
-                if (total< 4096){
-                    buffer.fill(0,total,4095)
+                if (total < 4096) {
+                    buffer.fill(0, total, 4095)
                 }
-
-                val audioSamples = AudioSamples(buffer,4096,2,44100,currentAudioTime)
-                if (audioSamples.isInit){
-                    mAudioPipe.sendAudioSamples(audioSamples)
-                }
+                mPipeMediator.sendAudioBuffer(buffer, 4096, currentAudioTime)
             }
         } else {
             val frameDuration = 1000 * (1024.0 / 44100)
             val bufferSize = 4096
             val buffer = ByteArray(bufferSize)
-            Arrays.fill(buffer,0)
-            while (!isStopRecord){
+            Arrays.fill(buffer, 0)
+            while (!isStopRecord && !ThreadHelper.isInterrupted()) {
                 val startTime = System.currentTimeMillis();
                 val currentAudioTime = System.currentTimeMillis() - mRecordingStart
-                val audioItem = AudioItem(buffer,bufferSize,currentAudioTime)
-                if (isNeedMixer){
-                    val res = mAudioMixer?.sendPrimaryAudio(audioItem.buffer,audioItem.length)
-                    if (res == -4){
-                        break
-                    }
-                } else {
-                    mOutputQueue.put(audioItem)
-
-                }
+                mPipeMediator.sendAudioBuffer(buffer, bufferSize, currentAudioTime)
                 val endTime = System.currentTimeMillis() - startTime
                 val sleepTime = (frameDuration - endTime).toLong()
                 ThreadHelper.sleep((sleepTime).toLong())
@@ -104,37 +70,16 @@ class AudioRecord {
         }
 
 
-    }
-
-    private val mPipeRunnable = Runnable {
-        while (!needStopPipeThread){
-            val bufferSize = 4096
-            val buffer = ByteArray(bufferSize)
-            val ret = mAudioPipe.receiveAudioSamples(buffer,bufferSize)
-            if (ret){
-                val currentAudioTime = System.currentTimeMillis() - mRecordingStart
-                val audioItem = AudioItem(buffer,bufferSize,currentAudioTime)
-                if (isNeedMixer){
-                    val res = mAudioMixer?.sendPrimaryAudio(audioItem.buffer,audioItem.length)
-                    if (res == -4){
-                        break
-                    }
-                } else {
-                    mOutputQueue.put(audioItem)
-                }
-            }
-        }
+        mPipeMediator.sendAudioBuffer(ByteArray(4096),-1,-1)
     }
 
     private var mCurrentStretch = 1
 
     private var allAudioDuration = 0L
 
-    private var mRecordThread : Thread = Thread(mRecordRunnable)
+    private var mRecordThread: Thread = Thread(mRecordRunnable)
 
-    private var mPipeThread : Thread = Thread(mPipeRunnable)
-
-    private var mAudioRecord : AudioRecord? = null
+    private var mAudioRecord: AudioRecord? = null
 
     private var mBlockByteLength = 0
 
@@ -142,9 +87,7 @@ class AudioRecord {
 
     private var mRecordingStart = 0L
 
-    private var mAudioMixer : FileRecordAudioMixer? = null
-
-    private var isNeedMixer =  false
+    private var isNeedMixer = false
 
     private var isOpenMic = true
 
@@ -154,165 +97,62 @@ class AudioRecord {
 
     // ------------------ AudioPipe -------------------------------
 
-    private var mAudioPipe : AudioPipe;
+    private val mPipeMediator: PipeMediator = pipe;
 
-    final private val PITCH_INDEX = 10
-    final private val STRETCH_INDEX = 20
-
-
-    private var needStopPipeThread = false
-
-    constructor(){
-        mAudioPipe = AudioPipe()
-        val config = AudioPipe.Config()
-        config.channels = 2
-        config.sampleRate = 44100
-
-        val res = mAudioPipe.create(config)
-
-        val audioPitchProcessor = AudioProcessor(mAudioPipe.context,AudioPitchProcessor.TYPE_NAME)
-        val pitchConfig = Config()
-        pitchConfig.setString(AudioPitchProcessor.CONFIG_PITCH_TYPE,AudioPitchProcessor.TYPE_NORMAL)
-        audioPitchProcessor.setConfig(pitchConfig)
-        mAudioPipe.addProcessor(PITCH_INDEX,audioPitchProcessor)
-
-        val audioStretchProcessor = AudioProcessor(mAudioPipe.context,AudioStretchProcessor.TYPE_NAME)
-        val stretchConfig = Config()
-        stretchConfig.setNumber(AudioStretchProcessor.CONFIG_STRETCH,mAudioStretch)
-        audioStretchProcessor.setConfig(stretchConfig)
-        mAudioPipe.addProcessor(STRETCH_INDEX,audioStretchProcessor)
-    }
-
-
-
-    private var mMixerRunnable = Runnable {
-        while (mAudioMixer != null){
-            val buffer = ByteArray(mBufferSize)
-            var res = -2
-            res = mAudioMixer!!.getPCMForRecord(buffer,mBufferSize)
-            if (res < 0){
-                if (res == -2) break
-                else continue
-            } else {
-                val currentAudioTime = System.currentTimeMillis() - mRecordingStart
-                val audioItem = AudioItem(buffer,mBufferSize,currentAudioTime)
-                mOutputQueue.put(audioItem)
-            }
-        }
-    }
-
-    private var mMixerThread : Thread = Thread(mMixerRunnable)
-
-    private var mFileRecorder : FileExporter? = null
-
-    private val mFileRunnable = Runnable {
-        while (!Thread.currentThread().isInterrupted){
-            val item = mOutputQueue.poll()
-            if (item != null){
-                mFileRecorder?.sendAudioData(item.buffer,item.length,item.time)
-
-                val currentAudioTime = item.time * mCurrentStretch
-
-                allAudioDuration += currentAudioTime
-            }
-        }
-    }
-
-    private var mWriterThread : Thread = Thread(mFileRunnable)
-
-    private fun read(record: AudioRecord, bys: ByteArray): Int {
-        var result = 0
-        try {
-            result = record.read(bys, 0, mBlockByteLength)
-        } catch (e: Exception) {
-        }
-        if (result < 0) {
-        }
-        return result
-    }
-
-    public fun updateMicState(isOpen : Boolean){
+    public fun updateMicState(isOpen: Boolean) {
         isOpenMic = isOpen
     }
 
-    public fun updateAudioStretch(audioStretch : Double){
-//        mAudioStretch = audioStretch
-
-        mAudioPipe.deleteProcessor(STRETCH_INDEX)
-        val stretchProcessor = AudioProcessor(mAudioPipe.context,AudioStretchProcessor.TYPE_NAME)
-        val config = Config()
-        config.setNumber(AudioStretchProcessor.CONFIG_STRETCH,audioStretch)
-        stretchProcessor.setConfig(config)
-        mAudioPipe.addProcessor(STRETCH_INDEX,stretchProcessor)
-    }
-
-    public fun updateAudioPitch(type : String){
-        mAudioPipe.deleteProcessor(PITCH_INDEX)
-        val pitchProcessor = AudioProcessor(mAudioPipe.context,AudioPitchProcessor.TYPE_NAME)
-        val config = Config()
-        config.setString(AudioPitchProcessor.CONFIG_PITCH_TYPE,type)
-        pitchProcessor.setConfig(config)
-        mAudioPipe.addProcessor(PITCH_INDEX,pitchProcessor)
-
-    }
-
-    public fun startRecord(fileExporter: FileExporter){
-        mFileRecorder = fileExporter
-        if (initRecorder()){
+    public fun startRecord() {
+        if (initRecorder()) {
             if (mRecordingStart == 0L) mRecordingStart = System.currentTimeMillis()
-            if (isOpenMic){
+            if (isOpenMic) {
                 mAudioRecord!!.startRecording()
             } else {
                 isStopRecord = false
             }
-
-            needStopPipeThread = false
-
             mRecordThread = ThreadHelper.runThread(mRecordRunnable)
-            mPipeThread = ThreadHelper.runThread(mPipeRunnable)
-
-            if (isNeedMixer){
-                mMixerThread = ThreadHelper.runThread(mMixerRunnable)
-            }
-            mWriterThread = ThreadHelper.runThread(mFileRunnable)
         }
 
     }
 
-    public fun stopRecord(){
-        if (isOpenMic){
+    public fun stopRecord() {
+        if (isOpenMic) {
             if (mAudioRecord == null || mAudioRecord!!.state != AudioRecord.STATE_INITIALIZED) return
 
             try {
                 mAudioRecord?.stop()
                 mAudioRecord?.release()
-            } catch (e : Exception){
+            } catch (e: Exception) {
 
             }
         } else {
             isStopRecord = true
             TLog.e("stop record --- 1")
         }
-
-        mOutputQueue.clear()
-
-        needStopPipeThread = true
-
         mRecordThread.interrupt();
-        mMixerThread.interrupt();
-        mWriterThread.interrupt();
-
     }
 
-    public fun release(){
+    public fun release() {
         try {
             stopRecord()
-        } catch (e : Exception){
+        } catch (e: Exception) {
 
         }
     }
 
-    private fun initRecorder() : Boolean{
+    private fun read(audioRecord: AudioRecord, bys: ByteArray): Int {
+        var result = 0
+        try {
+            result = audioRecord.read(bys, 0, mBlockByteLength)
+        } catch (e : Exception) {
+        }
+        if (result < 0) {
+        }
+        return result
+    }
+
+    private fun initRecorder(): Boolean {
         val audioSource = MediaRecorder.AudioSource.VOICE_COMMUNICATION
         val sampleRate = 44100
         val channelConfig = AudioFormat.CHANNEL_IN_STEREO
@@ -326,92 +166,17 @@ class AudioRecord {
         val inputBufferSize = minBufferSize * 4
         val frameSizeInBytes = channelCount * 2
         mBufferSize = inputBufferSize / frameSizeInBytes * frameSizeInBytes
+        TLog.e("[Debug] current record info minBufferSize %s inputBufferSize %s frameSize %s mbufferSize %s",minBufferSize,inputBufferSize,frameSizeInBytes,mBufferSize)
 
         if (mBufferSize < 1) {
             return false
         }
 
         mAudioRecord =
-            AudioRecord(audioSource, sampleRate, channelConfig, audioBitWidth, mBufferSize)
+            AudioRecord(audioSource, sampleRate, channelConfig, audioBitWidth, 4096)
 
         return mAudioRecord!!.state == AudioRecord.STATE_INITIALIZED
 
-    }
-
-    public fun initAudioMixer(path : String,startPos : Long){
-        val inspector = MediaInspector.shared()
-        val info = inspector.inspect(path)
-
-        for (stream in info.streams){
-            if (stream is MediaInspector.MediaInfo.Audio){
-                val audioItem = AudioMixerItem(path,stream.bitrate,stream.channels,stream.sampleRate)
-                isNeedMixer = true
-
-                mAudioMixer = FileRecordAudioMixer()
-                val config = Config()
-                config.setString(FileRecordAudioMixer.CONFIG_PATH,path)
-                config.setNumber(FileRecordAudioMixer.CONFIG_CHANNELS,2)
-                config.setNumber(FileRecordAudioMixer.CONFIG_SAMPLE_RATE,44100)
-                config.setNumber(FileRecordAudioMixer.CONFIG_AUDIO_STRETCH,mAudioStretch)
-                config.setNumber(FileRecordAudioMixer.CONFIG_FILE_MIX_WEIGHT,0.5);
-                if (startPos > 0){
-                    config.setNumber(FileRecordAudioMixer.CONFIG_START_POS,startPos)
-                }
-                val res = mAudioMixer!!.open(config)
-                TLog.e("audio mixer state ${res}")
-
-                ThreadHelper.runThread {
-                    val channels =
-                        AudioFormat.CHANNEL_OUT_STEREO
-
-                    val bufferSize = AudioTrack.getMinBufferSize(
-                        44100,
-                        channels,
-                        AudioFormat.ENCODING_PCM_16BIT
-                    )
-
-                    val audioTrack = AudioTrack(
-                        AudioManager.STREAM_MUSIC,
-                        44100,
-                        channels,
-                        AudioFormat.ENCODING_PCM_16BIT,
-                        bufferSize,
-                        AudioTrack.MODE_STREAM
-                    )
-                    audioTrack.setVolume(1f)
-                    audioTrack.play()
-
-                    val buffer = ByteArray(bufferSize)
-
-                    while (true){
-                        var res = -2
-                        res = if (mAudioMixer != null) {mAudioMixer!!.getPCMForPlay(buffer,bufferSize)} else {res}
-                        if (res < 0){
-                            if (res == -2){
-                                break
-                            } else {
-                                continue
-                            }
-                        } else {
-                            val res = audioTrack.write(buffer,0,bufferSize)
-                        }
-                    }
-
-                    audioTrack.stop()
-                    audioTrack.release()
-                }
-                break
-            }
-        }
-
-    }
-
-    public fun resetAudioMixer(){
-        if (isNeedMixer){
-            mAudioMixer?.close()
-            mAudioMixer = null
-            isNeedMixer = false
-        }
     }
 
 }

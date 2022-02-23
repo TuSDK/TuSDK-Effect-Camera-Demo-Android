@@ -8,6 +8,8 @@ import com.tusdk.pulse.filter.FilterPipe;
 import com.tusdk.pulse.filter.filters.TusdkCosmeticFilter;
 
 import org.lasque.effectcamerademo.views.record.RecordView;
+import org.lasque.tubeautysetting.Beauty;
+import org.lasque.tubeautysetting.PipeMediator;
 import org.lasque.tusdkpulse.core.seles.SelesParameters;
 import org.lasque.effectcamerademo.views.cosmetic.panel.BasePanel;
 import org.lasque.effectcamerademo.views.cosmetic.panel.blush.BlushPanel;
@@ -97,13 +99,7 @@ public class CosmeticPanelController {
 
     private Context mContext;
 
-    private Filter mCosmeticFilter;
-
-    private FilterPipe mFilterPipe;
-
-    private DispatchQueue mRenderPool;
-
-    private TusdkCosmeticFilter.PropertyBuilder mProperty;
+    private Beauty mBeautyManager;
 
     public CosmeticPanelController(Context context){
         this.mContext = context;
@@ -111,65 +107,43 @@ public class CosmeticPanelController {
 
     }
 
-    public void initCosmetic(FilterPipe filterPipe, DispatchQueue renderPool){
-        mFilterPipe = filterPipe;
-        mRenderPool = renderPool;
+    public void initCosmetic(Beauty beauty){
 
-        mRenderPool.runSync(new Runnable() {
+        mBeautyManager = beauty;
+
+        mEffect.setListener(new SelesParameters.SelesParametersListener() {
             @Override
-            public void run() {
-                mCosmeticFilter = new Filter(mFilterPipe.getContext(),TusdkCosmeticFilter.TYPE_NAME);
-                boolean ret = mFilterPipe.addFilter(RecordView.mFilterMap.get(SelesParameters.FilterModel.CosmeticFace),mCosmeticFilter);
-                mProperty = new TusdkCosmeticFilter.PropertyBuilder();
-
-                mEffect.setListener(new SelesParameters.SelesParametersListener() {
-                    @Override
-                    public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
-                        double value = arg.getValue();
-                        switch (arg.getKey()){
-                            case "lipAlpha":
-                                mProperty.lipOpacity = value;
-                                mProperty.lipEnable = 1;
-                                break;
-                            case "blushAlpha":
-                                mProperty.blushOpacity = value;
-                                mProperty.blushEnable = 1;
-                                break;
-                            case "eyebrowAlpha":
-                                mProperty.browOpacity = value;
-                                mProperty.browEnable = 1;
-                                break;
-                            case "eyeshadowAlpha":
-                                mProperty.eyeshadowOpacity = value;
-                                mProperty.eyeshadowEnable = 1;
-                                break;
-                            case "eyelineAlpha":
-                                mProperty.eyelineOpacity = value;
-                                mProperty.eyelineEnable = 1;
-                                break;
-                            case "eyelashAlpha":
-                                mProperty.eyelashOpacity = value;
-                                mProperty.eyelashEnable = 1;
-                                break;
-                            case "facialAlpha":
-                                mProperty.facialOpacity = value;
-                                mProperty.facialEnable = 1;
-                                break;
-                        }
-                        updateProperty();
-                    }
-                });
-
-                for (String key : mDefaultCosmeticPercentParams.keySet()){
-                    mEffect.appendFloatArg(key,mDefaultCosmeticPercentParams.get(key));
+            public void onUpdateParameters(SelesParameters.FilterModel model, String code, SelesParameters.FilterArg arg) {
+                double value = arg.getValue();
+                switch (arg.getKey()){
+                    case "lipAlpha":
+                        mBeautyManager.setLipOpacity((float) value);
+                        break;
+                    case "blushAlpha":
+                        mBeautyManager.setBlushOpacity((float) value);
+                        break;
+                    case "eyebrowAlpha":
+                        mBeautyManager.setBrowOpacity((float) value);
+                        break;
+                    case "eyeshadowAlpha":
+                        mBeautyManager.setEyeshadowOpacity((float) value);
+                        break;
+                    case "eyelineAlpha":
+                        mBeautyManager.setEyelineOpacity((float) value);
+                        break;
+                    case "eyelashAlpha":
+                        mBeautyManager.setEyelashOpacity((float) value);
+                        break;
+                    case "facialAlpha":
+                        mBeautyManager.setFacialOpacity((float) value);
+                        break;
                 }
-
-//                for (String key : mDefaultCosmeticMaxPercentParams.keySet()){
-//                    SelesParameters.FilterArg arg = mEffect.getFilterArg(key);
-//                    arg.setMaxValueFactor(mDefaultCosmeticMaxPercentParams.get(key));
-//                }
             }
         });
+
+        for (String key : mDefaultCosmeticPercentParams.keySet()){
+            mEffect.appendFloatArg(key,mDefaultCosmeticPercentParams.get(key));
+        }
     }
 
     public LipstickPanel getLipstickPanel() {
@@ -266,12 +240,8 @@ public class CosmeticPanelController {
         return mEffect;
     }
 
-    public TusdkCosmeticFilter.PropertyBuilder getProperty(){
-        return mProperty;
-    }
-
-    public Filter getCosmeticFilter(){
-        return mCosmeticFilter;
+    public Beauty getBeautyManager(){
+        return mBeautyManager;
     }
 
     public void setPanelClickListener(BasePanel.OnPanelClickListener listener){
@@ -288,21 +258,6 @@ public class CosmeticPanelController {
         for (CosmeticTypes.Types type : CosmeticTypes.Types.values()){
             getPanel(type).clear();
         }
-    }
-
-    public void updateProperty(){
-        mRenderPool.runSync(new Runnable() {
-            @Override
-            public void run() {
-                boolean ret = mCosmeticFilter.setProperty(TusdkCosmeticFilter.PROP_PARAM,mProperty.makeProperty());
-            }
-        });
-    }
-
-    public boolean checkMarkSence(){
-        int cosmeticEnable = mProperty.blushEnable + mProperty.browEnable + mProperty.eyelashEnable + mProperty.eyelineEnable + mProperty.eyeshadowEnable + mProperty.lipEnable + mProperty.facialEnable;
-
-        return cosmeticEnable>0;
     }
 
 }
