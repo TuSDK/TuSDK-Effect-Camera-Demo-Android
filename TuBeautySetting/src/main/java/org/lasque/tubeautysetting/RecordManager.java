@@ -145,10 +145,11 @@ public class RecordManager {
         mOutputPath = outputPath;
 
         mCurrentConfig = new FileExporter.Config();
-        mCurrentConfig.width = width;
-        mCurrentConfig.height = height;
+        mCurrentConfig.width = width / 2 * 2;
+        mCurrentConfig.height = height / 2 * 2;
         mCurrentConfig.channels = channels;
         mCurrentConfig.sampleRate = sampleRate;
+        mCurrentConfig.framerate = 30;
 
         if (watermark != null){
             mCurrentConfig.watermark = watermark;
