@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.net.Uri;
@@ -39,6 +40,7 @@ import org.lasque.effectcamerademo.utils.PermissionUtils;
 import org.lasque.effectcamerademo.utils.SensorHelper;
 import org.lasque.effectcamerademo.views.record.RecordView;
 import org.lasque.tubeautysetting.AudioConvert;
+import org.lasque.tubeautysetting.Beauty;
 import org.lasque.tubeautysetting.PipeMediator;
 import org.lasque.tubeautysetting.RecordManager;
 import org.lasque.tusdkpulse.core.TuSdkContext;
@@ -253,15 +255,29 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         TuSdkSize videoSize = new  TuSdkSize();
         long videoDuration = 0;
 
+        long rotate = 0;
+
         MediaInspector.MediaInfo mediaInfo = MediaInspector.shared().inspect(path);
+        if (mediaInfo == null) return;
         for (MediaInspector.MediaInfo.AVItem item : mediaInfo.streams){
             if (item instanceof MediaInspector.MediaInfo.Video){
-                videoSize.width = ((MediaInspector.MediaInfo.Video) item).width;
-                videoSize.height = ((MediaInspector.MediaInfo.Video) item).height;
+                rotate = ((MediaInspector.MediaInfo.Video) item).rotation;
+                if (rotate % 180 != 0){
+                    videoSize.width = ((MediaInspector.MediaInfo.Video) item).height;
+                    videoSize.height = ((MediaInspector.MediaInfo.Video) item).width;
+                } else {
+                    videoSize.width = ((MediaInspector.MediaInfo.Video) item).width;
+                    videoSize.height = ((MediaInspector.MediaInfo.Video) item).height;
+                }
                 videoDuration = item.duration;
+
                 break;
             }
         }
+        if (mediaInfo.streams.length < 2){
+
+        }
+
         TuSdkSizeF videoSizePercent = new TuSdkSizeF();
 
         switch (mRecordView.getCurrentDoubleViewMode()){
@@ -342,10 +358,41 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 break;
         }
 
+        RectF renderRect = new RectF(0,0,1,1);
+
+
+        TuSdkSize mRealRenderSize = new TuSdkSize(mCurrentRenderSize.width / 2,mCurrentRenderSize.height / 2);
+        TuSdkSize realSize = new TuSdkSize(videoSize.width,videoSize.height);
+        if (rotate % 180 != 0){
+            realSize = new TuSdkSize(realSize.height,realSize.width);
+        }
+
+        TuSdkSize renderSize = new TuSdkSize();
+        if (realSize.getRatioFloat() > mRealRenderSize.getRatioFloat()){
+            renderSize.height = mRealRenderSize.height;
+            renderSize.width = (int) (mRealRenderSize.height * realSize.getRatioFloat());
+
+        } else {
+            renderSize.height = mRealRenderSize.height;
+            renderSize.width = (int) (renderSize.height / realSize.getRatioFloat());
+        }
+
+        float rw = ((float) mRealRenderSize.width ) / renderSize.width;
+        float rh = ((float)  mRealRenderSize.height ) / renderSize.height;
+
+        renderRect.left = (1 - rw) / 2.0f;
+        renderRect.right = renderRect.left + rw;
+        renderRect.top = (1 - rh) / 2.0f;
+        renderRect.bottom = renderRect.top + rh;
 
         long finalVideoDuration = videoDuration;
 
-        mPipeMediator.setJoiner(path,audioPath,cameraRect,videoRect,0L);
+        boolean issupport = MediaInspector.shared().checkHardwareDecodingSupport(path);
+
+        mPipeMediator.setMaxRecordDuration(finalVideoDuration);
+
+        mPipeMediator.setJoiner(path,audioPath,cameraRect,videoRect,0L,false,new RectF(0,0,1,1),new RectF(0,0,1,1));
+        mPipeMediator.getBeautyManager().updateJoinerBound(Beauty.JoinerBoundType.Video,10, Color.BLUE,40);
 
         runOnUiThread(new Runnable() {
             @Override
@@ -475,13 +522,16 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             if (!mPipeMediator.isReady()){
                 TuSdkSize size = ViewSize.create(mCameraView);
                 mCurrentRatio = TuCameraAspectRatio.of(size.width,size.height);
-                mPipeMediator.requestInit(getBaseContext(),mCameraView,new SizeF(mCurrentRatio.getX(),mCurrentRatio.getY()));
-                mRecordView.initFilterPipe(mPipeMediator.getBeautyManager());
-                mCurrentRenderSize = TuSdkSize.create((int) PROCESS_WIDTH, (int) (PROCESS_WIDTH / mCurrentRatio.getX() * mCurrentRatio.getY()));
+                if (mPipeMediator.requestInit(getBaseContext(),mCameraView,new SizeF(mCurrentRatio.getX(),mCurrentRatio.getY())).first){
+                    mRecordView.initFilterPipe(mPipeMediator.getBeautyManager());
+                    mCurrentRenderSize = TuSdkSize.create((int) PROCESS_WIDTH, (int) (PROCESS_WIDTH / mCurrentRatio.getX() * mCurrentRatio.getY()));
+                }
             }
-            Image image = mPipeMediator.onFrameAvailable();
-            if (!isRecording){
-                image.release();
+            if (mPipeMediator.isReady()){
+                Image image = mPipeMediator.onFrameAvailable();
+                if (!isRecording){
+                    image.release();
+                }
             }
         }
     };
@@ -643,7 +693,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                     @Override
                     public void onRecordPause() {
                         isRecording = false;
-                        if (isTimeOut) return;
                         mRecordView.updateMovieRecordState(RecordView.RecordState.Paused,false);
                         if (mPipeMediator.hasJoiner()){
                             mPipeMediator.setJoinerPlay(false);
@@ -657,7 +706,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                         isTimeOut = false;
                         isRecordCompleted = false;
                     }
-                });
+                },true,"DCIM/Camera",-1);
                 mAudioRecord.startRecord();
 
                 return true;
@@ -690,8 +739,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 mPipeMediator.stopRecord();
 
                 if (mPipeMediator.hasJoiner()){
-                    mPipeMediator.joinerSeek(0L);
                     mPipeMediator.setJoinerPlay(false);
+                    mPipeMediator.joinerSeek(1L);
                 }
 
                 return true;
@@ -720,11 +769,15 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
             @Override
             public int getFragmentSize() {
-                return mPipeMediator.getCurrentRecordFragmentSize();
+                int size = mPipeMediator.getCurrentRecordFragmentSize();
+                TLog.e("[Debug] Current fragment size %s",size);
+                return size;
             }
 
             @Override
             public void popFragment() {
+                isTimeOut = false;
+                isRecordCompleted = false;
                 mPipeMediator.popLastFragment();
 
                 if (mPipeMediator.hasJoiner()){
@@ -907,6 +960,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         super.onDestroy();
         if (mAudioRecord != null) mAudioRecord.release();
         if (mSensorHelper != null) mSensorHelper.release();
+
+        if (mPipeMediator != null) mPipeMediator.release();
 
         Engine.getInstance().release();
 

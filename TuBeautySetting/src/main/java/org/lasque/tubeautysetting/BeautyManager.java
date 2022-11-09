@@ -318,14 +318,23 @@ public class BeautyManager implements Beauty {
         mRenderPipe.getRenderPool().runSync(new Runnable() {
             @Override
             public void run() {
+
+
+
                 int monsterIndex = mFilterMap.get(SelesParameters.FilterModel.MonsterFace);
                 int stickerIndex = mFilterMap.get(SelesParameters.FilterModel.StickerFace);
-                int reshareIndex = mFilterMap.get(SelesParameters.FilterModel.Reshape);
-                int plasticIndex = mFilterMap.get(SelesParameters.FilterModel.PlasticFace);
                 mFP.deleteFilter(monsterIndex);
                 mFP.deleteFilter(stickerIndex);
+
+                if (TextUtils.isEmpty(code)) return;
+
+
+                int reshareIndex = mFilterMap.get(SelesParameters.FilterModel.Reshape);
+                int plasticIndex = mFilterMap.get(SelesParameters.FilterModel.PlasticFace);
+
                 mFP.deleteFilter(reshareIndex);
                 mFP.deleteFilter(plasticIndex);
+
 
                 Filter monster = new Filter(mFP.getContext(), TusdkFaceMonsterFilter.TYPE_NAME);
                 Config config = new Config();
@@ -875,7 +884,7 @@ public class BeautyManager implements Beauty {
     }
 
     @Override
-    public void setJoiner(RectF videoRect, RectF cameraRect, String videoPath) {
+    public void setJoiner(RectF videoRect, RectF cameraRect, String videoPath,boolean useSoftDecoding,RectF videoSrcRect,RectF cameraSrcRect) {
         mRenderPipe.getRenderPool().runSync(new Runnable() {
             @Override
             public void run() {
@@ -890,19 +899,31 @@ public class BeautyManager implements Beauty {
                 config.setNumber(SimultaneouslyFilter.CONFIG_STRETCH,mCurrentVideoStretch);
                 config.setNumber(SimultaneouslyFilter.CONFIG_FRAMERATE,30);
 
-                filter.setConfig(config);
+                config.setBoolean(SimultaneouslyFilter.CONFIG_USE_SOFT_DECODING,useSoftDecoding);
 
-                mFP.addFilter(DOUBLE_VIEW_INDEX,filter);
+                if (!filter.setConfig(config)){
+                    return;
+                }
+
+                if (!mFP.addFilter(DOUBLE_VIEW_INDEX,filter)){
+                    return;
+                }
 
                 SimultaneouslyFilter.PropertyBuilder builder = new SimultaneouslyFilter.PropertyBuilder();
                 builder.holder.video_dst_rect = videoRect;
                 builder.holder.camera_dst_rect = cameraRect;
 
+                builder.holder.video_src_rect = videoSrcRect;
+                builder.holder.camera_src_rect = cameraSrcRect;
+
                 filter.setProperty(SimultaneouslyFilter.PROP_RECT_PARAM,builder.makeRectProperty());
 
-                builder.holder.current_pos = (int) mJoinerPlayStartPos;
+                if (mJoinerPlayStartPos > 0){
+                    builder.holder.current_pos = (int) mJoinerPlayStartPos;
 
-                filter.setProperty(SimultaneouslyFilter.PROP_SEEK_PARAM,builder.makeSeekProperty());
+                    filter.setProperty(SimultaneouslyFilter.PROP_SEEK_PARAM,builder.makeSeekProperty());
+
+                }
 
                 mDoubleViewProperty = builder;
 
@@ -958,9 +979,31 @@ public class BeautyManager implements Beauty {
                 mDoubleViewProperty.holder.camera_dst_rect = cameraRect;
                 mDoubleViewProperty.holder.video_dst_rect = videoRect;
 
-                filter.setProperty(SimultaneouslyFilter.PROP_RECT_PARAM,mDoubleViewProperty.makeProperty());
+                filter.setProperty(SimultaneouslyFilter.PROP_RECT_PARAM,mDoubleViewProperty.makeRectProperty());
             }
         });
+    }
+
+    @Override
+    public void updateJoinerBound(JoinerBoundType type, double width, int color, double miter) {
+        if (mFP.getFilter(DOUBLE_VIEW_INDEX) == null) return;
+        mRenderPipe.getRenderPool().runSync(new Runnable() {
+            @Override
+            public void run() {
+                Filter filter = mFP.getFilter(DOUBLE_VIEW_INDEX);
+                if (type == JoinerBoundType.Camera){
+                    mDoubleViewProperty.holder.camera_bound_color = color;
+                    mDoubleViewProperty.holder.camera_bound_width = width;
+                    mDoubleViewProperty.holder.camera_bound_miter = miter;
+                } else if (type == JoinerBoundType.Video){
+                    mDoubleViewProperty.holder.video_bound_color = color;
+                    mDoubleViewProperty.holder.video_bound_width = width;
+                    mDoubleViewProperty.holder.video_bound_miter = miter;
+                }
+                filter.setProperty(SimultaneouslyFilter.PROP_RECT_PARAM,mDoubleViewProperty.makeRectProperty());
+            }
+        });
+
     }
 
     @Override

@@ -265,7 +265,13 @@ public class TabPagerIndicator extends LinearLayout {
             mCurrentPosition = position;
             setHighLightText(position);
             // 必须刷新不然getItemPosition不会更新
-            mViewPager2.getAdapter().notifyDataSetChanged();
+            mViewPager2.post(new Runnable() {
+                @Override
+                public void run() {
+                    mViewPager2.getAdapter().notifyDataSetChanged();
+
+                }
+            });
         }
 
         @Override
@@ -287,7 +293,13 @@ public class TabPagerIndicator extends LinearLayout {
         public void onPageSelected(int i) {
             setHighLightText(i);
             // 必须刷新不然getItemPosition不会更新
-            mViewPager.getAdapter().notifyDataSetChanged();
+            mViewPager.post(new Runnable() {
+                @Override
+                public void run() {
+                    mViewPager.getAdapter().notifyDataSetChanged();
+
+                }
+            });
         }
 
         @Override

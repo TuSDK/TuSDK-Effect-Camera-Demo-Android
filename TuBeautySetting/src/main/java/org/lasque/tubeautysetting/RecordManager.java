@@ -3,9 +3,11 @@ package org.lasque.tubeautysetting;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.media.MediaFormat;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
+import android.text.TextUtils;
 import android.util.Pair;
 
 import androidx.annotation.Nullable;
@@ -16,6 +18,7 @@ import com.tusdk.pulse.filter.Image;
 import com.tusdk.pulse.utils.gl.GLContext;
 
 import org.lasque.tusdkpulse.core.TuSdkContext;
+import org.lasque.tusdkpulse.core.struct.TuSdkSize;
 import org.lasque.tusdkpulse.core.utils.FileHelper;
 import org.lasque.tusdkpulse.core.utils.TLog;
 import org.lasque.tusdkpulse.core.utils.ThreadHelper;
@@ -39,6 +42,8 @@ import java.util.List;
  * @Copyright (c) 2020 tusdk.com. All rights reserved.
  */
 public class RecordManager {
+
+    private static final String TAG = "RecordManager";
 
     public static class VideoFragmentItem{
         /**
@@ -90,6 +95,10 @@ public class RecordManager {
 
     private String mOutputPath;
 
+    private String saveAlbumName = "DCIM/Camera";
+
+    private boolean isAlbum = false;
+
     private FileExporter.Config mCurrentConfig;
 
     private VideoFragmentItem mCurrentFragment;
@@ -137,19 +146,36 @@ public class RecordManager {
      * @param glContext 纹理采集环境上下文
      * @return 创建状态 -1 参数异常 0 成功
      */
-    public Pair<Boolean,Integer> newExporter(String outputPath, int width, int height, int channels, int sampleRate, @Nullable Bitmap watermark, int watermarkPos, GLContext glContext){
+    public Pair<Boolean,Integer> newExporter(String outputPath, int width, int height, int channels, int sampleRate, @Nullable Bitmap watermark, int watermarkPos, GLContext glContext,boolean isSaveToAlbum,@Nullable String albumName){
         if (width <= 0 || height <= 0 || channels > 2 || channels < 1 || sampleRate < 0){
             return new Pair<>(false,-1);
         }
 
+        isAlbum = isSaveToAlbum;
+        if (!TextUtils.isEmpty(albumName)){
+            saveAlbumName = albumName;
+        }
+
+
         mOutputPath = outputPath;
+        TuSdkSize outputSize = TuSdkSize.create(width / 2 * 2,height / 2 * 2);
+        TuSdkSize supportSize = ProduceOutputUtils.getSupportSize(MediaFormat.MIMETYPE_VIDEO_AVC);
+
+        if (supportSize.maxSide() < outputSize.maxSide()) {
+            double scale = ((double) supportSize.maxSide()) / ((double) outputSize.maxSide());
+
+            outputSize = outputSize.scale((float) scale);
+        }
 
         mCurrentConfig = new FileExporter.Config();
-        mCurrentConfig.width = width / 2 * 2;
-        mCurrentConfig.height = height / 2 * 2;
+        mCurrentConfig.width = outputSize.width / 2 * 2;
+        mCurrentConfig.height = outputSize.height / 2 * 2;
         mCurrentConfig.channels = channels;
         mCurrentConfig.sampleRate = sampleRate;
         mCurrentConfig.framerate = 30;
+
+        mCurrentConfig.keyint = 10;
+
 
         if (watermark != null){
             mCurrentConfig.watermark = watermark;
@@ -186,8 +212,6 @@ public class RecordManager {
         mCurrentFragment = new VideoFragmentItem();
         mCurrentFragment.path = getTempOutputPath();
 
-        TLog.e("[Debug] current output path %s",mCurrentFragment.path);
-
         mWritenQueue.runSync(new Runnable() {
             @Override
             public void run() {
@@ -215,12 +239,15 @@ public class RecordManager {
     public boolean pauseExporter(){
         if (!isRecording) return false;
 
+        TLog.e("%s pauseExporter start run sync",TAG);
         mWritenQueue.runSync(new Runnable() {
             @Override
             public void run() {
+                TLog.e("%s pauseExporter in run sync",TAG);
                 isRecording = false;
+                TLog.e("%s pauseExporter mExporter.close() in",TAG);
                 mExporter.close();
-
+                TLog.e("%s pauseExporter mExporter.close() out",TAG);
                 mCurrentFragment.fragmentDuration = mLastFrameTs;
                 mExporter = null;
                 mRecordingStart = 0L;
@@ -313,38 +340,39 @@ public class RecordManager {
         final long writeFrameTs = mLastFrameTs;
         long currentDuration = (mCurrentRecordDurationMS + mLastFrameTs);
         float p = currentDuration / (float)mMaxRecordDurationMS;
+        TLog.e("%s sendImage start run async",TAG);
         mWritenQueue.runAsync(new Runnable() {
             @Override
             public void run() {
+                if (isRecordingTimeOut) return;
+                TLog.e("%s sendImage in run async ts : %s",TAG,writeFrameTs);
                 mExporter.sendImage(image,writeFrameTs);
+                TLog.e("%s sendImage exporter sendimage out",TAG);
                 image.release();
-                TLog.e("[Debug] record manager send image in ts %s p %s",ts,p);
+                TLog.e("[Debug] record manager send image in ts %s p %s",writeFrameTs,p);
 
                 ThreadHelper.post(new Runnable() {
                     @Override
                     public void run() {
+                        TLog.e("[Debug] record manager send image out ts %s p %s",currentDuration,p);
                         if (mRecordListener != null){
                             mRecordListener.onProgress(p,currentDuration);
+                        }
+
+                        if (p >= 1 && !isRecordingTimeOut){
+                            isRecordingTimeOut = true;
+
+                            if (mRecordListener != null){
+                                mRecordListener.onRecordTimeOut();
+                            }
                         }
                     }
                 });
             }
         });
 
-        TLog.e("[Debug] record manager send image out ts %s p %s",ts,p);
-
-        if (p >= 1){
-            isRecordingTimeOut = true;
-
-            if (mRecordListener != null){
-                mRecordListener.onRecordTimeOut();
-            }
-
-            pauseExporter();
 
 
-
-        }
     }
 
     /**
@@ -356,7 +384,9 @@ public class RecordManager {
     public void sendAudio(byte[] buffer,int length,long ts){
         if (!isRecording) return;
         if (isRecordingTimeOut) return;
-        mExporter.sendAudioData(buffer,length, (long) (ts * mCurrentStretch));
+        TLog.e("[Debug] %s record manager send audio in ts %s",TAG,ts);
+
+        mExporter.sendAudioData(buffer,length, (long) (ts));
     }
 
     /**
@@ -377,7 +407,7 @@ public class RecordManager {
      * @param output 输出路径 可以为公共区域
      */
     public void saveVideo(String input,String output){
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q){
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isAlbum){
             long now = TuSdkDate.create().getTimeInMillis();
             ContentValues values = new ContentValues();
             values.put(MediaStore.Images.Media.DATE_TAKEN,now);
@@ -385,7 +415,9 @@ public class RecordManager {
             values.put(MediaStore.Images.Media.DATE_ADDED,now / 1000);
             values.put(MediaStore.Images.Media.DISPLAY_NAME,output.substring(output.lastIndexOf("/")));
             values.put(MediaStore.Images.Media.MIME_TYPE,"video/mp4");
+            values.put(MediaStore.Images.Media.RELATIVE_PATH,saveAlbumName);
             values.put(MediaStore.MediaColumns.IS_PENDING,1);
+
             Uri uri = TuSdkContext.context().getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,values);
             try {
                 OutputStream outputStream = TuSdkContext.context().getContentResolver().openOutputStream(uri);
@@ -399,7 +431,7 @@ public class RecordManager {
                 TuSdkContext.context().getContentResolver().update(uri,values,null,null);
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
-            } catch (Exception e) {
+            } catch (IOException e) {
                 e.printStackTrace();
             }
         } else {

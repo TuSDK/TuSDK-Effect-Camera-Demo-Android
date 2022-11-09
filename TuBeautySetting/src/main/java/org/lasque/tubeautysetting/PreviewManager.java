@@ -91,4 +91,8 @@ public class PreviewManager {
         mDisplayView.setBackgroundColor(color);
     }
 
+    public FilterDisplayView getCurrentView(){
+        return mDisplayView;
+    }
+
 }

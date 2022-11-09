@@ -71,6 +71,11 @@ public interface Beauty {
 
     }
 
+
+    public enum JoinerBoundType{
+        Camera,Video;
+    }
+
     /**
      * @param beautyStyle 美肤模式
      */
@@ -382,7 +387,7 @@ public interface Beauty {
      * @param cameraRect 相机画面渲染区域 [0,0,1,1]
      * @param videoPath 合拍素材路径
      */
-    void setJoiner(RectF videoRect,RectF cameraRect,String videoPath);
+    void setJoiner(RectF videoRect,RectF cameraRect,String videoPath,boolean useSoftDecoding,RectF videoSrcRect,RectF cameraSrcRect);
 
     /**
      * 取消合拍
@@ -395,6 +400,14 @@ public interface Beauty {
      * @param cameraRect 相机画面渲染区域 [0,0,1,1]
      */
     void updateJoiner(RectF videoRect,RectF cameraRect);
+
+    /**
+     * @param type 边框类型 视频区域或相机区域
+     * @param width 边框宽度 小于1则视为无边框
+     * @param color 边框颜色
+     * @param miter 边框圆角幅度
+     */
+    void updateJoinerBound(JoinerBoundType type,double width,int color,double miter);
 
     /**
      * @return 当前是否应用了合拍功能

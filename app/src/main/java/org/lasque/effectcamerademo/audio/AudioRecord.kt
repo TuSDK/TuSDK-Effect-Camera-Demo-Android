@@ -49,8 +49,11 @@ class AudioRecord(pipe: PipeMediator) {
                 val buffer = ByteArray(4096)
                 val total = read(record, buffer)
                 val currentAudioTime = System.currentTimeMillis() - mRecordingStart
+                if (total < 0){
+                    continue;
+                }
                 if (total < 4096) {
-                    buffer.fill(0, total, 4095)
+                    buffer.fill(0, total, 4096)
                 }
                 mPipeMediator.sendAudioBuffer(buffer, 4096, currentAudioTime)
             }
@@ -94,6 +97,8 @@ class AudioRecord(pipe: PipeMediator) {
     private var isStopRecord = false;
 
     private var mAudioStretch = 1.0
+
+    private var mMinBufferSize = 0
 
     // ------------------ AudioPipe -------------------------------
 
@@ -144,7 +149,7 @@ class AudioRecord(pipe: PipeMediator) {
     private fun read(audioRecord: AudioRecord, bys: ByteArray): Int {
         var result = 0
         try {
-            result = audioRecord.read(bys, 0, mBlockByteLength)
+            result = audioRecord.read(bys, 0, 4096)
         } catch (e : Exception) {
         }
         if (result < 0) {
@@ -163,6 +168,7 @@ class AudioRecord(pipe: PipeMediator) {
         mBlockByteLength = 1024 * channelCount * (bitWidth / 8)
 
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioBitWidth)
+        mMinBufferSize = minBufferSize
         val inputBufferSize = minBufferSize * 4
         val frameSizeInBytes = channelCount * 2
         mBufferSize = inputBufferSize / frameSizeInBytes * frameSizeInBytes
@@ -171,6 +177,8 @@ class AudioRecord(pipe: PipeMediator) {
         if (mBufferSize < 1) {
             return false
         }
+
+
 
         mAudioRecord =
             AudioRecord(audioSource, sampleRate, channelConfig, audioBitWidth, 4096)

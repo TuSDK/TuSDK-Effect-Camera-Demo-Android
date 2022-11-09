@@ -19,6 +19,7 @@ import org.lasque.tusdkpulse.core.utils.ThreadHelper;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.Semaphore;
 
 /**
  * TuSDK
@@ -125,22 +126,21 @@ public class AudioConvert {
         @Override
         public void run() {
             while (!ThreadHelper.isInterrupted()) {
-                AudioItem item = null;
-                try {
-                    item = mInputQueue.take();
-                    TLog.e("[Debug] %s get audio item from input queue item info %s",TAG,item);
-                    if (item != null) {
-                        if (item.time < 0) break;
 
+                AudioItem item = null;
+                item = mInputQueue.poll();
+                if (item != null) {
+                    if (item.time < 0) break;
+                    synchronized (AudioPipe.class){
                         AudioSamples audioSamples = new AudioSamples(item.buffer, 1024, 2, 44100, item.time);
                         TLog.e("[Debug] %s is audio samples init %s length %s",TAG,audioSamples.isInit(),item.buffer.length);
                         if (audioSamples.isInit()) {
-                            mAudioPipe.sendAudioSamples(audioSamples);
+                            while (!mAudioPipe.sendAudioSamples(audioSamples)){
+
+                            }
                             TLog.e("[Debug] %s send audio samples to audio pipe",TAG);
                         }
                     }
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
                 }
 
             }
@@ -155,27 +155,32 @@ public class AudioConvert {
             while (!ThreadHelper.isInterrupted()) {
                 int bufferSize = 4096;
                 byte[] buffer = new byte[bufferSize];
-                boolean res = mAudioPipe.receiveAudioSamples(buffer, bufferSize);
-                if (res) {
-                    TLog.e("[Debug] %s receive audio samples to audio pipe res %s",TAG,res);
-                    long currentAudioTime = System.currentTimeMillis();
-                    AudioItem audioItem = new AudioItem(buffer, bufferSize, currentAudioTime);
-                    if (isNeedMixer) {
-                        int ret = mAudioMixer.sendPrimaryAudio(audioItem.buffer, audioItem.length);
-                        TLog.e("[Debug] %s send primary audio to audio mixer",TAG);
-                        if (ret == -4) {
-                            break;
+                synchronized (AudioPipe.class){
+                    if (mAudioPipe == null) return;
+                    boolean res = mAudioPipe.receiveAudioSamples(buffer, bufferSize);
+                    if (res) {
+//                    TLog.e("[Debug] %s receive audio samples to audio pipe res %s",TAG,res);
+                        long currentAudioTime = System.currentTimeMillis();
+                        AudioItem audioItem = new AudioItem(buffer, bufferSize, currentAudioTime);
+                        if (isNeedMixer) {
+                            int ret = mAudioMixer.sendPrimaryAudio(audioItem.buffer, audioItem.length);
+                            TLog.e("[Debug] %s send primary audio to audio mixer",TAG);
+                            if (ret == -4) {
+                                break;
+                            } else {
+                                continue;
+                            }
                         } else {
-                            continue;
-                        }
-                    } else {
-                        try {
-                            mOutputQueue.put(audioItem);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
+                            try {
+                                mOutputQueue.put(audioItem);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
                         }
                     }
                 }
+
+
             }
         }
     };
@@ -260,7 +265,7 @@ public class AudioConvert {
      * @param path 混音文件路径
      * @param startPos 混音文件开始播放位置
      */
-    public void initAudioMixer(String path, Long startPos) {
+    public void initAudioMixer(String path, Long startPos,Long repeatDuration) {
         MediaInspector inspector = MediaInspector.shared();
         MediaInspector.MediaInfo info = inspector.inspect(path);
         for (MediaInspector.MediaInfo.AVItem stream : info.streams) {
@@ -275,6 +280,10 @@ public class AudioConvert {
                 config.setNumber(FileRecordAudioMixer.CONFIG_FILE_MIX_WEIGHT, 0.5);
                 if (startPos > 0) {
                     config.setNumber(FileRecordAudioMixer.CONFIG_START_POS, startPos);
+                }
+                if (repeatDuration > 0){
+                    config.setNumber(FileRecordAudioMixer.CONFIG_REPEAT_DURATION,repeatDuration);
+
                 }
                 boolean res = mAudioMixer.open(config);
 
@@ -308,6 +317,8 @@ public class AudioConvert {
     public void stopAudioPlayer(){
         isAudioPlayerPause = true;
         isAudioPlayerStop = true;
+
+
         if (mCurrentAudioPlayerThread != null) mCurrentAudioPlayerThread.interrupt();
     }
 
@@ -345,6 +356,7 @@ public class AudioConvert {
 
                     while (isAudioPlayerPause){
                         if (isAudioPlayerStop){
+                            audioTrack.setVolume(0);
                             break;
                         }
                     }
@@ -367,9 +379,9 @@ public class AudioConvert {
                         TLog.e("[Debug] %s write audio buffer to audio track",TAG);
                     }
                 }
-
                 audioTrack.stop();
                 audioTrack.release();
+                mCurrentAudioTrack = null;
             }
         });
     }
@@ -422,16 +434,30 @@ public class AudioConvert {
     }
 
     public void release(){
-        if (mPipeInputThread != null) mPipeInputThread.interrupt();
-        if (mPipeOutputThread !=null) mPipeOutputThread.interrupt();
-        if (mMixedOutputThread != null) mMixedOutputThread.interrupt();
-        if (mCurrentAudioPlayerThread != null) mCurrentAudioPlayerThread.interrupt();
+        if (mPipeInputThread != null) {
+            mPipeInputThread.interrupt();
+        }
+        if (mPipeOutputThread !=null){
+            mPipeOutputThread.interrupt();
+        }
+        if (mCurrentAudioPlayerThread != null){
+            mCurrentAudioPlayerThread.interrupt();
+        }
 
-        if (mAudioPipe != null){
-            mAudioPipe.destory();
+        if (mMixedOutputThread != null) {
+            mMixedOutputThread.interrupt();
         }
 
         resetAudioMixer();
+
+        if (mAudioPipe != null){
+            TLog.e("audio pipe release");
+            mAudioPipe.destory();
+            mAudioPipe = null;
+        }
+
+
+
         mInputQueue.clear();
         mOutputQueue.clear();
 

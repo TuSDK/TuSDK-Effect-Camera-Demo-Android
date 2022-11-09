@@ -158,7 +158,7 @@ class AlbumFragment : Fragment(), LoadTaskDelegate {
                     val mediaInfo = MediaInspector.shared().inspect(path)
                     for (index in mediaInfo.streams){
                         if (index is MediaInspector.MediaInfo.Video){
-                            if (index.needPreprocess){
+                            if (false){
 
                                 val pathCache = requireContext().getSharedPreferences("path-cache",Context.MODE_PRIVATE)
 
@@ -344,7 +344,9 @@ class AlbumFragment : Fragment(), LoadTaskDelegate {
         processerConfig.outputPath = outputPath
         processerConfig.keyint = 1
 
-        videoPreprocessor.open(processerConfig)
+        if(!videoPreprocessor.open(processerConfig)){
+            return ""
+        }
         videoPreprocessor.start()
 
 

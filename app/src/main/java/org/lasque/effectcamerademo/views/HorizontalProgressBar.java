@@ -90,7 +90,10 @@ public class HorizontalProgressBar extends View {
     /** 暂停录制 (将添加一个进度) **/
     public synchronized void pauseRecord(){
         if(mPauseProgressList == null)return;
-        if (getProgress() > 1) return;
+        if (getProgress() > 1) {
+            mPauseProgressList.addLast(1f);
+            return;
+        }
         mPauseProgressList.addLast(getProgress());
     }
 
