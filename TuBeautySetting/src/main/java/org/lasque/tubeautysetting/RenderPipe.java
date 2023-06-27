@@ -9,6 +9,8 @@ import com.tusdk.pulse.filter.Image;
 import com.tusdk.pulse.utils.gl.GLContext;
 import com.tusdk.pulse.utils.gl.OutputSurface;
 
+import org.lasque.tusdkpulse.core.utils.TLog;
+
 /**
  * TuSDK
  * org.lasque.tubeautysetting
@@ -38,6 +40,8 @@ public class RenderPipe{
         mRenderPool.runSync(new Runnable() {
             @Override
             public void run() {
+                TLog.e("Renderpipe initRenderPipe()");
+
                 mGLCtx = new GLContext();
                 mGLCtx.createForRender(Engine.getInstance().getMainGLContext().getEGLContext());
                 mGLCtx.makeCurrent();
@@ -71,5 +75,7 @@ public class RenderPipe{
                 mGLCtx.destroy();
             }
         });
+
+//        mRenderPool = null;
     }
 }

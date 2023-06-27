@@ -21,6 +21,7 @@ import org.lasque.tusdkpulse.core.utils.TLog;
 import org.lasque.tusdkpulse.core.utils.ThreadHelper;
 import org.lasque.tusdkpulse.core.utils.image.ImageOrientation;
 
+import java.nio.ByteBuffer;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -32,16 +33,16 @@ import java.util.concurrent.LinkedBlockingQueue;
  * @Date 2021/12/20  17:53
  * @Copyright (c) 2020 tusdk.com. All rights reserved.
  */
-public class PipeMediator implements ImageConvert.ProcessProperty{
+public class PipeMediator implements ImageConvert.ProcessProperty {
 
     private static final String TAG = "PipeMediator";
 
     private static PipeMediator INSTANCE = null;
 
-    public static PipeMediator getInstance(){
-        if (INSTANCE == null){
-            synchronized (PipeMediator.class){
-                if (INSTANCE == null){
+    public static PipeMediator getInstance() {
+        if (INSTANCE == null) {
+            synchronized (PipeMediator.class) {
+                if (INSTANCE == null) {
                     INSTANCE = new PipeMediator();
                 }
             }
@@ -50,11 +51,9 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     }
 
 
-
-    private PipeMediator(){
+    private PipeMediator() {
         mRenderPipe = new RenderPipe();
         mRenderPipe.initRenderPipe();
-
         mImageConvert = new ImageConvert(mRenderPipe);
 
     }
@@ -77,12 +76,12 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * 渲染宽度,默认值为720
      */
-    private int mRenderWidth = 720;
+    private int mRenderWidth = 1080;
 
     /**
      * 渲染比例
      */
-    private Pair<Double,Double> mAspect;
+    private Pair<Double, Double> mAspect;
 
     /**
      * 当前渲染区域
@@ -111,7 +110,9 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
 
     private boolean isReady = false;
 
-    /** --------------------------- Record Manager ----------------------------------- */
+    /**
+     * --------------------------- Record Manager -----------------------------------
+     */
 
     private RecordManager mRecordManager = new RecordManager();
 
@@ -142,11 +143,11 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     private Runnable mAudioConvertReceiverRunnable = new Runnable() {
         @Override
         public void run() {
-            while (!ThreadHelper.isInterrupted()){
+            while (!ThreadHelper.isInterrupted()) {
                 try {
-                    AudioConvert.AudioItem item =  mAudioConvert.receiveAudioData();
+                    AudioConvert.AudioItem item = mAudioConvert.receiveAudioData();
                     if (item == null) continue;
-                    if (item.length > 0){
+                    if (item.length > 0) {
                         long currentAudioTime = System.currentTimeMillis() - mRecordingStart;
                         mOutputQueue.put(item);
                     }
@@ -160,11 +161,11 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     private Runnable mAudioWriterRunnable = new Runnable() {
         @Override
         public void run() {
-            while (!ThreadHelper.isInterrupted()){
+            while (!ThreadHelper.isInterrupted()) {
                 AudioConvert.AudioItem item = mOutputQueue.poll();
-                if (item != null){
-                    TLog.e("[Debug] current audio info %s",item);
-                    mRecordManager.sendAudio(item.buffer,item.buffer.length,item.time);
+                if (item != null) {
+                    TLog.e("[Debug] current audio info %s", item);
+                    mRecordManager.sendAudio(item.buffer, item.buffer.length, item.time);
                 }
             }
         }
@@ -173,68 +174,84 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * @return 是否可用
      */
-    public boolean isReady(){
+    public boolean isReady() {
         return isReady;
     }
 
     /**
      * @param renderWidth 渲染画面宽度 默认值为720
      */
-    public void setRenderWidth(int renderWidth){
+    public void setRenderWidth(int renderWidth) {
         mRenderWidth = renderWidth;
-        if (mImageConvert.isReady()){
+        if (mImageConvert.isReady()) {
             mImageConvert.setRenderWidth(renderWidth);
         }
     }
 
+    public void setBufferOrientation(int orientation){
+        mImageConvert.setBufferOrientation(orientation);
+    }
+
+    public void setIsBufferFlip(boolean isFlip){
+        mImageConvert.setIsBufferFlip(isFlip);
+    }
+
     /**
      * @param context Context 对象
-     * @param parent 渲染View父布局
-     * @param aspect 默认渲染尺寸比例
+     * @param parent  渲染View父布局
+     * @param aspect  默认渲染尺寸比例
      * @return Init结果 不为0时 说明参数存在错误
      */
-    public Pair<Boolean,Integer> requestInit(Context context, ViewGroup parent, SizeF aspect){
-        if (isReady){
-            return new Pair<>(false,-1);
+    public Pair<Boolean, Integer> requestInit(Context context, ViewGroup parent, SizeF aspect) {
+        synchronized (PipeMediator.class){
+
+            TLog.e("Pipe request init start");
+
+            if (isReady) {
+                return new Pair<>(false, -1);
+            }
+
+
+
+            mSensorHelper = new SensorHelper(context);
+
+            mAspect = new Pair<>(((double) aspect.getWidth()), ((double) aspect.getHeight()));
+
+            if (mInputSize == null) return new Pair<>(false, -2);
+
+
+            mImageConvert.setInputSize(mInputSize.width, mInputSize.height, mCameraInputOrientation);
+            mImageConvert.setRenderWidth(mRenderWidth);
+            mImageConvert.setAspect(aspect.getWidth(), aspect.getHeight());
+            mImageConvert.setProcessProperty(this);
+
+            Pair<Boolean, Integer> result = mImageConvert.requestInit();
+            if (!result.first) {
+                return result;
+            }
+
+            mAudioConvert = new AudioConvert();
+
+            mBeautyManager = new BeautyManager();
+            mBeautyManager.requestInit(mRenderPipe);
+
+            mPreviewManager = new PreviewManager();
+            result = mPreviewManager.requestInit(context, parent);
+            if (!result.first) {
+                return result;
+            }
+
+            isReady = true;
+
+            return new Pair<Boolean, Integer>(true, 0);
+
         }
-
-        mSensorHelper = new SensorHelper(context);
-
-        mAspect = new Pair<>(((double) aspect.getWidth()), ((double) aspect.getHeight()));
-
-        if (mInputSize == null) return new Pair<>(false,-2);
-
-
-        mImageConvert.setInputSize(mInputSize.width,mInputSize.height, mCameraInputOrientation);
-        mImageConvert.setRenderWidth(mRenderWidth);
-        mImageConvert.setAspect(aspect.getWidth(),aspect.getHeight());
-        mImageConvert.setProcessProperty(this);
-
-        Pair<Boolean,Integer> result = mImageConvert.requestInit();
-        if (!result.first){
-            return result;
-        }
-
-        mAudioConvert = new AudioConvert();
-
-        mBeautyManager = new BeautyManager();
-        mBeautyManager.requestInit(mRenderPipe);
-
-        mPreviewManager = new PreviewManager();
-        result = mPreviewManager.requestInit(context,parent);
-        if (!result.first){
-            return result;
-        }
-
-        isReady = true;
-
-        return new Pair<Boolean,Integer>(true,0);
     }
 
     /**
      * @param aspect 更新渲染画面比例
      */
-    public void updateAspect(SizeF aspect){
+    public void updateAspect(SizeF aspect) {
         if (!isReady) return;
         mAspect = new Pair<>(((double) aspect.getWidth()), ((double) aspect.getHeight()));
         mImageConvert.updateAspect(aspect.getWidth(), aspect.getHeight());
@@ -243,61 +260,143 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * @param rectF 实际渲染区域 默认计算方式为fitin
      */
-    public void changedRect(@Nullable RectF rectF){
+    public void changedRect(@Nullable RectF rectF) {
         mCurrentPreviewRect = rectF;
     }
 
     /**
      * @return SurfaceTexture Android系统纹理包装类 OES类型 可直接设置到Camera中
      */
-    public SurfaceTexture getSurfaceTexture(){
+    public SurfaceTexture getSurfaceTexture() {
         return mImageConvert.getSurfaceTexture();
     }
 
     /**
      * SurfaceTexture 回调中调用此方法 通知管线进行渲染
      */
-    public Image onFrameAvailable(){
+    @Deprecated
+    public Image onFrameAvailable() {
         if (!isReady) return null;
-        //1. 通过ImageConvert 将Android默认的OES纹理转换为可处理的Texture2D纹理
-        Image in = mImageConvert.onFrameAvailable();
-        //2. 通过BeautyManager进行美颜处理
-        Image out = mBeautyManager.processFrame(in);
-//        Image out = in;
-        //3. 将处理后的Image显示到View上
-        if (mCurrentPreviewRect == null){
-            mPreviewManager.updateImage(out);
-        } else {
-            mPreviewManager.updateImage(out,mCurrentPreviewRect);
+        synchronized (PipeMediator.class) {
+            //1. 通过ImageConvert 将Android默认的OES纹理转换为可处理的Texture2D纹理
+            TLog.e("Pipe image onFrameAvailable start");
+            Image in = mImageConvert.onFrameAvailable();
+            //2. 通过BeautyManager进行美颜处理
+            TLog.e("Pipe image processFrame start");
+//            Image out = mBeautyManager.processFrame(in);
+        Image out = in;
+            //3. 将处理后的Image显示到View上
+            TLog.e("Pipe image preview start");
+            if (mCurrentPreviewRect == null) {
+                mPreviewManager.updateImage(out);
+            } else {
+                mPreviewManager.updateImage(out, mCurrentPreviewRect);
+            }
+            //4. 需要录制的情况下 将处理后的Image对象送入RecordManager进行文件输出
+            if (mRecordManager != null) {
+                long recordPos = System.currentTimeMillis();
+                mRecordManager.sendImage(out, recordPos);
+            }
+            TLog.e("Pipe image release start");
+            in.release();
+//            out.release();
+            return out;
         }
-        //4. 需要录制的情况下 将处理后的Image对象送入RecordManager进行文件输出
-        if (mRecordManager != null){
-            long recordPos =  System.currentTimeMillis();
-            mRecordManager.sendImage(out,recordPos);
-        }
+    }
 
-        return out;
+    private long frameCount = 0;
+    private long frameDurationSum = 0;
+    private long frameImageConvertSum = 0;
+    private long frameProcessSum = 0;
+
+    /**
+     * @param buffer NV21数据
+     * @param bufferWidth NV21数据宽度
+     * @param bufferHeight NV21数据高度
+     * @param stride 每行数据长度
+     * @return
+     */
+    public Image onFrameAvailable(ByteBuffer buffer, int bufferWidth, int bufferHeight, int stride){
+        if (!isReady) return null;
+        synchronized (PipeMediator.class) {
+            //1. 通过ImageConvert 将Android默认的OES纹理转换为可处理的Texture2D纹理
+
+            long renderStart = System.currentTimeMillis();
+
+            TLog.e("Pipe image onFrameAvailable start");
+
+            long convertStart = System.currentTimeMillis();
+            Image in = mImageConvert.onFrameAvailable(buffer,bufferWidth,bufferHeight,stride);
+            long convertOver = System.currentTimeMillis() - convertStart;
+            frameImageConvertSum += convertOver;
+            //2. 通过BeautyManager进行美颜处理
+            TLog.e("Pipe image processFrame start");
+
+            long processStart = System.currentTimeMillis();
+            Image out = mBeautyManager.processFrame(in);
+            long processOver = System.currentTimeMillis() - processStart;
+            frameProcessSum += processOver;
+//        Image out = in;
+
+            long aspectStart = System.currentTimeMillis();
+//            Image finalOut = mImageConvert.onAspectProcess(out);
+//            Image finalOut = out;
+            long aspectOver = System.currentTimeMillis() - aspectStart;
+
+            //3. 将处理后的Image显示到View上
+            TLog.e("Pipe image preview start");
+            if (mCurrentPreviewRect == null) {
+                mPreviewManager.updateImage(out);
+            } else {
+                mPreviewManager.updateImage(out, mCurrentPreviewRect);
+            }
+            //4. 需要录制的情况下 将处理后的Image对象送入RecordManager进行文件输出
+            if (mRecordManager != null) {
+                long recordPos = System.currentTimeMillis();
+                mRecordManager.sendImage(out, recordPos);
+            }
+            TLog.e("Pipe image release start");
+            long releaseStart = System.currentTimeMillis();
+            in.release();
+            out.release();
+//            finalOut.release();
+            long releaseOver = System.currentTimeMillis() - releaseStart;
+
+            long renderOver = System.currentTimeMillis() - renderStart;
+            frameDurationSum += renderOver;
+            frameCount++;
+            if (frameCount % 100 == 0){
+                TLog.e("PULSE_ENABLE_PERFORMANCE_TEST [All-Render-Duration] all : %d convert : %d process : %d",frameDurationSum / frameCount,frameImageConvertSum / frameCount,frameProcessSum / frameCount);
+            }
+
+//            if (renderOver > 40){
+//                TLog.e("PULSE_ENABLE_PERFORMANCE_TEST [Slow] all : %d convert : %d process : %d aspect : %d release : %d",renderOver,convertOver,processOver,aspectOver,releaseOver);
+//
+//            }
+
+            return out;
+        }
     }
 
     /**
      * 开始录制视频
      *
-     * @param outputPath 视频输出绝对路径
-     * @param width 视频输出宽度
-     * @param height 视频输出高度
-     * @param watermark 水印图片
+     * @param outputPath   视频输出绝对路径
+     * @param width        视频输出宽度
+     * @param height       视频输出高度
+     * @param watermark    水印图片
      * @param watermarkPos 水印位置 // 0 : tl, 1 : tr, 2 : bl, 3 : br
      */
-    public void startRecord(String outputPath, int width, int height, @Nullable Bitmap watermark, int watermarkPos, RecordManager.RecordListener listener,boolean isSaveToAlbum,@Nullable String albumName,long repeatDuration){
+    public void startRecord(String outputPath, int width, int height, @Nullable Bitmap watermark, int watermarkPos, RecordManager.RecordListener listener, boolean isSaveToAlbum, @Nullable String albumName, long repeatDuration) {
         mRecordManager.setRecordListener(listener);
-        mRecordManager.newExporter(outputPath, width, height, 2, 44100, watermark, watermarkPos, mRenderPipe.getContext(),isSaveToAlbum,albumName);
+        mRecordManager.newExporter(outputPath, width, height, 2, 44100, watermark, watermarkPos, mRenderPipe.getContext(), isSaveToAlbum, albumName);
 
-        if (isNeedMixer || isNeedAudioPrecess){
-            mAudioConvert.requestInit(2,44100);
+        if (isNeedMixer || isNeedAudioPrecess) {
+            mAudioConvert.requestInit(2, 44100);
             mAudioConvert.updateAudioPitch(mCurrentAudioPitch);
             mAudioConvert.updateAudioStretch(mAudioStretch);
             if (isNeedMixer)
-                mAudioConvert.initAudioMixer(mBGMPath,mAudioStartPos,repeatDuration);
+                mAudioConvert.initAudioMixer(mBGMPath, mAudioStartPos, repeatDuration);
             mAudioConvertReceiverThread = ThreadHelper.runThread(mAudioConvertReceiverRunnable);
             mAudioConvert.startAudioConvert();
         }
@@ -310,10 +409,10 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * 暂停录制
      */
-    public void pauseRecord(){
+    public void pauseRecord() {
         mRecordManager.pauseExporter();
 
-        if (isNeedMixer || isNeedAudioPrecess){
+        if (isNeedMixer || isNeedAudioPrecess) {
             mAudioConvert.stopAudioConvert();
             mAudioConvert.release();
             mAudioConvertReceiverThread.interrupt();
@@ -325,23 +424,23 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * 停止录制
      */
-    public void stopRecord(){
+    public void stopRecord() {
         mRecordManager.stopExporter();
     }
 
     /**
      * @param speed 录制速率 0.1~2.0
      */
-    public void setRecordSpeed(double speed){
+    public void setRecordSpeed(double speed) {
         isNeedAudioPrecess = true;
         mAudioStretch = speed;
-        if (mAudioStretch == 2.0){
+        if (mAudioStretch == 2.0) {
             mVideoStretch = 0.5;
-        } else if (mAudioStretch == 1.5){
+        } else if (mAudioStretch == 1.5) {
             mVideoStretch = 0.75;
-        } else if (mAudioStretch == 0.75){
+        } else if (mAudioStretch == 0.75) {
             mVideoStretch = 1.5;
-        } else if (mAudioStretch == 0.5){
+        } else if (mAudioStretch == 0.5) {
             mVideoStretch = 2.0;
         } else {
             mVideoStretch = mAudioStretch;
@@ -354,21 +453,21 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * @return 删除当前最后一段录制片段
      */
-    public RecordManager.VideoFragmentItem popLastFragment(){
+    public RecordManager.VideoFragmentItem popLastFragment() {
         return mRecordManager.popFragment();
     }
 
     /**
      * @return 获取当前录制长度
      */
-    public long getCurrentRecordDuration(){
+    public long getCurrentRecordDuration() {
         return mRecordManager.getCurrentRecordDuration();
     }
 
     /**
      * @return 当前录制片段数量
      */
-    public int getCurrentRecordFragmentSize(){
+    public int getCurrentRecordFragmentSize() {
         return mRecordManager.getFragmentSize();
     }
 
@@ -376,17 +475,17 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * @param durationMS 录制最大时间
      */
-    public void setMaxRecordDuration(long durationMS){
+    public void setMaxRecordDuration(long durationMS) {
         mRecordManager.setMaxRecordDuration(durationMS);
     }
 
     /**
      * @param isPlay 是否开始播放合拍片段
      */
-    public void setJoinerPlay(boolean isPlay){
+    public void setJoinerPlay(boolean isPlay) {
         if (!hasJoiner()) return;
         mBeautyManager.setJoinerPlayerState(isPlay);
-        if (isPlay){
+        if (isPlay) {
             mAudioConvert.startAudioPlayer();
         } else {
             mAudioConvert.stopAudioPlayer();
@@ -394,26 +493,25 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
 
     }
 
-    public void setBGMPlay(boolean isPlay){
+    public void setBGMPlay(boolean isPlay) {
         if (TextUtils.isEmpty(mBGMPath)) return;
-        if (isPlay){
+        if (isPlay) {
             mAudioConvert.startAudioPlayer();
         } else {
             mAudioConvert.stopAudioPlayer();
         }
     }
-
 
 
     /**
      * @param buffer 音频PCM数据
-     * @param size 数据长度
-     * @param ts 时间戳
+     * @param size   数据长度
+     * @param ts     时间戳
      * @return
      */
-    public boolean sendAudioBuffer(byte[] buffer,int size ,long ts){
-        AudioConvert.AudioItem audioItem = new AudioConvert.AudioItem(buffer,size,ts);
-        if (!isNeedAudioPrecess && !isNeedMixer){
+    public boolean sendAudioBuffer(byte[] buffer, int size, long ts) {
+        AudioConvert.AudioItem audioItem = new AudioConvert.AudioItem(buffer, size, ts);
+        if (!isNeedAudioPrecess && !isNeedMixer) {
             try {
                 mOutputQueue.put(audioItem);
             } catch (InterruptedException e) {
@@ -441,32 +539,34 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * @return 获取美颜属性管理类
      */
-    public BeautyManager getBeautyManager(){
+    public BeautyManager getBeautyManager() {
         return mBeautyManager;
     }
 
     /**
      * 设置视频画面输入大小
-     * @param width 宽度
+     *
+     * @param width  宽度
      * @param height 高度
      */
-    public void setInputSize(int width,int height){
-        mInputSize = new TuSdkSize(width,height);
+    public void setInputSize(int width, int height) {
+        mInputSize = new TuSdkSize(width, height);
     }
 
     /**
      * 设置视频画面输入方向
+     *
      * @param rotation 角度
      * @param isMirror 是否镜像
      */
-    public void setInputRotation(int rotation,boolean isMirror){
-        mCameraInputOrientation = ImageOrientation.getValue(rotation,isMirror);
+    public void setInputRotation(int rotation, boolean isMirror) {
+        mCameraInputOrientation = ImageOrientation.getValue(rotation, isMirror);
     }
 
     /**
      * @param pitchType 变声类型
      */
-    public void setSoundPitchType(AudioConvert.AudioPitchType pitchType){
+    public void setSoundPitchType(AudioConvert.AudioPitchType pitchType) {
         mCurrentAudioPitch = pitchType;
         if (pitchType != AudioConvert.AudioPitchType.NORMAL)
             isNeedAudioPrecess = true;
@@ -477,7 +577,7 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * @param path 背景音乐路径
      */
-    public void setBGM(String path,Long audioStartPos){
+    public void setBGM(String path, Long audioStartPos) {
         mBGMPath = path;
         mAudioStartPos = audioStartPos;
         isNeedAudioPrecess = true;
@@ -485,15 +585,15 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     }
 
     /**
-     * @param videoPath 合拍视频路径
+     * @param videoPath  合拍视频路径
      * @param cameraRect 合拍中相机渲染区域
-     * @param videoRect 合拍中视频渲染区域
+     * @param videoRect  合拍中视频渲染区域
      */
-    public void setJoiner(String videoPath,String audioPath,RectF cameraRect,RectF videoRect,Long audioStartPos,boolean useSoftDecoding,RectF videoSrcRect,RectF cameraSrcRect){
-        if (!TextUtils.isEmpty(videoPath)){
+    public void setJoiner(String videoPath, String audioPath, RectF cameraRect, RectF videoRect, Long audioStartPos, boolean useSoftDecoding, RectF videoSrcRect, RectF cameraSrcRect) {
+        if (!TextUtils.isEmpty(videoPath)) {
             mBeautyManager.updateVideoStretch(mVideoStretch);
             mBeautyManager.setRenderSize(mImageConvert.getRenderSize());
-            mBeautyManager.setJoiner(videoRect, cameraRect, videoPath,useSoftDecoding,videoSrcRect,cameraSrcRect);
+            mBeautyManager.setJoiner(videoRect, cameraRect, videoPath, useSoftDecoding, videoSrcRect, cameraSrcRect);
         }
 
         if (!TextUtils.isEmpty(audioPath)) {
@@ -508,7 +608,7 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * 删除合拍
      */
-    public void deleteJoiner(){
+    public void deleteJoiner() {
         mBGMPath = "";
         mAudioConvert.resetAudioMixer();
         mBeautyManager.deleteJoiner();
@@ -517,21 +617,22 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
 
     /**
      * 合拍画面跳转
+     *
      * @param ts 时间戳
      * @return
      */
-    public boolean joinerSeek(long ts){
+    public boolean joinerSeek(long ts) {
         return mBeautyManager.joinerSeek(ts);
     }
 
     /**
      * @return 当前是否在合拍状态
      */
-    public boolean hasJoiner(){
+    public boolean hasJoiner() {
         return mBeautyManager.hasJoiner();
     }
 
-    public boolean hasBGM(){
+    public boolean hasBGM() {
         if (hasJoiner()) return false;
         return !TextUtils.isEmpty(mBGMPath);
     }
@@ -539,17 +640,18 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * @param color 预览区域背景颜色
      */
-    public void setPreviewBackgroundColor(int color){
+    public void setPreviewBackgroundColor(int color) {
         mPreviewManager.setBackgroundColor(color);
     }
 
     /**
      * 处理相机拍照输出的图片
+     *
      * @param input 单张图片
      * @return 处理后的图片
      */
-    public Bitmap processBitmap(Bitmap input){
-        Image in = new Image(input,System.currentTimeMillis());
+    public Bitmap processBitmap(Bitmap input) {
+        Image in = new Image(input, System.currentTimeMillis());
         Image res = mBeautyManager.processFrame(in);
         Bitmap output = res.toBitmap();
         res.release();
@@ -559,20 +661,37 @@ public class PipeMediator implements ImageConvert.ProcessProperty{
     /**
      * 释放
      */
-    public void release(){
+    public void release() {
         if (!isReady) return;
-        mImageConvert.release();
-        mBeautyManager.release();
-        mPreviewManager.release();
-        mRenderPipe.release();
+        synchronized (PipeMediator.class) {
 
-        INSTANCE = null;
+            TLog.e("Pipe release -- 0");
 
-        isReady = false;
+            isReady = false;
+
+            mPreviewManager.release();
+            TLog.e("Pipe release -- 1");
+
+            mBeautyManager.release();
+            TLog.e("Pipe release -- 2");
+
+
+            mImageConvert.release();
+            TLog.e("Pipe release -- 3");
+
+            mRenderPipe.release();
+            TLog.e("Pipe release -- 4");
+
+            INSTANCE = null;
+
+
+            TLog.e("Pipe release -- 5");
+        }
+
     }
 
 
-    public FilterDisplayView getCurrentView(){
+    public FilterDisplayView getCurrentView() {
         return mPreviewManager.getCurrentView();
     }
 }

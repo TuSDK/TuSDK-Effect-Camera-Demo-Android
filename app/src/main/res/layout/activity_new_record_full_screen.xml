@@ -16,8 +16,8 @@
         android:scaleType="fitCenter"
         android:background="@color/lsq_color_black"
         android:id="@+id/lsq_camera_view_mask"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
+        android:layout_width="400dp"
+        android:layout_height="400dp"/>
 
     <org.lasque.effectcamerademo.views.record.RecordView
         android:id="@+id/lsq_movie_record_view"

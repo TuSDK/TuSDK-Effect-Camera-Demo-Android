@@ -21,6 +21,7 @@ import org.lasque.tusdkpulse.core.struct.TuSdkSize;
 import org.lasque.tusdkpulse.core.utils.TLog;
 
 import java.util.HashMap;
+import java.util.concurrent.Semaphore;
 
 /**
  * TuSDK
@@ -114,12 +115,12 @@ public class BeautyManager implements Beauty {
      * @return 输出纹理
      */
     public Image processFrame(final Image in){
+        if (!isReady()) return null;
         final Image[] out = new Image[1];
         mRenderPipe.getRenderPool().runSync(new Runnable() {
             @Override
             public void run() {
                 out[0] = mFP.process(in);
-                in.release();
             }
         });
         return out[0];
@@ -163,7 +164,7 @@ public class BeautyManager implements Beauty {
     /**
      * 更新滤镜参数
      */
-    private void updateFilter() {
+    public void updateFilter() {
         mRenderPipe.getRenderPool().runAsync(new Runnable() {
             @Override
             public void run() {
@@ -224,12 +225,15 @@ public class BeautyManager implements Beauty {
     /**
      * 更新美肤参数
      */
-    private void updateSkinProperty() {
+    public void updateSkinProperty() {
+
+        Semaphore semaphore = new Semaphore(0);
         mRenderPipe.getRenderPool().runAsync(new Runnable() {
             @Override
             public void run() {
                 int index = mFilterMap.get(SelesParameters.FilterModel.SkinFace);
                 Filter filter = mFP.getFilter(index);
+                if (filter == null) return;
                 switch (mCurrentSkinMode) {
                     case None:{
                         break;
@@ -247,8 +251,15 @@ public class BeautyManager implements Beauty {
                         break;
                     }
                 }
+
+                semaphore.release();
             }
         });
+        try {
+            semaphore.acquire();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**
@@ -278,7 +289,7 @@ public class BeautyManager implements Beauty {
     /**
      * 检测当前是否存在微整形滤镜
      */
-    private void checkPlastic() {
+    public void checkPlastic() {
         int index = mFilterMap.get(SelesParameters.FilterModel.PlasticFace);
         Filter plastic = mFP.getFilter(index);
         if (plastic != null) return;
@@ -298,7 +309,7 @@ public class BeautyManager implements Beauty {
     /**
      * 更新微整形参数
      */
-    private void updatePlastic() {
+    public void updatePlastic() {
         mRenderPipe.getRenderPool().runAsync(new Runnable() {
             @Override
             public void run() {
@@ -320,28 +331,24 @@ public class BeautyManager implements Beauty {
             public void run() {
 
 
-
                 int monsterIndex = mFilterMap.get(SelesParameters.FilterModel.MonsterFace);
                 int stickerIndex = mFilterMap.get(SelesParameters.FilterModel.StickerFace);
+                int reshareIndex = mFilterMap.get(SelesParameters.FilterModel.Reshape);
+                int plasticIndex = mFilterMap.get(SelesParameters.FilterModel.PlasticFace);
                 mFP.deleteFilter(monsterIndex);
                 mFP.deleteFilter(stickerIndex);
 
-                if (TextUtils.isEmpty(code)) return;
+                if (!TextUtils.isEmpty(code)){
+                    mFP.deleteFilter(plasticIndex);
+                    mFP.deleteFilter(reshareIndex);
 
 
-                int reshareIndex = mFilterMap.get(SelesParameters.FilterModel.Reshape);
-                int plasticIndex = mFilterMap.get(SelesParameters.FilterModel.PlasticFace);
-
-                mFP.deleteFilter(reshareIndex);
-                mFP.deleteFilter(plasticIndex);
-
-
-                Filter monster = new Filter(mFP.getContext(), TusdkFaceMonsterFilter.TYPE_NAME);
-                Config config = new Config();
-                config.setString(TusdkFaceMonsterFilter.CONFIG_TYPE, code);
-                boolean configRet = monster.setConfig(config);
-                boolean ret = mFP.addFilter(monsterIndex, monster);
-                TLog.e("add monster filter ret %s code %s monster index %s config ret %s",ret,code,monsterIndex,configRet);
+                    Filter monster = new Filter(mFP.getContext(), TusdkFaceMonsterFilter.TYPE_NAME);
+                    Config config = new Config();
+                    config.setString(TusdkFaceMonsterFilter.CONFIG_TYPE, code);
+                    boolean configRet = monster.setConfig(config);
+                    boolean ret = mFP.addFilter(monsterIndex, monster);
+                }
             }
         });
     }
@@ -366,7 +373,7 @@ public class BeautyManager implements Beauty {
     /**
      * 更新美妆滤镜
      */
-    private void updateCosmetic() {
+    public void updateCosmetic() {
         mRenderPipe.getRenderPool().runAsync(new Runnable() {
             @Override
             public void run() {
@@ -382,7 +389,7 @@ public class BeautyManager implements Beauty {
     /**
      * 检测当前是否添加了微整形扩展滤镜
      */
-    private void checkReshape() {
+    public void checkReshape() {
         mRenderPipe.getRenderPool().runAsync(new Runnable() {
             @Override
             public void run() {
@@ -399,7 +406,7 @@ public class BeautyManager implements Beauty {
     /**
      * 更新微整形扩展参数
      */
-    private void updateReshape() {
+    public void updateReshape() {
         mRenderPipe.getRenderPool().runAsync(new Runnable() {
             @Override
             public void run() {
@@ -422,6 +429,7 @@ public class BeautyManager implements Beauty {
 
     @Override
     public void setSmoothLevel(float level) {
+
         switch (mCurrentSkinMode) {
 
             case SkinNatural:
@@ -684,7 +692,6 @@ public class BeautyManager implements Beauty {
         checkCosmetic();
         mCosmeticProperty.lipColor = color;
         mCosmeticProperty.lipEnable = 1;
-
         updateCosmetic();
 
     }
@@ -694,7 +701,6 @@ public class BeautyManager implements Beauty {
         checkCosmetic();
         mCosmeticProperty.lipOpacity = opacity;
         mCosmeticProperty.lipEnable = 1;
-
         updateCosmetic();
 
     }
@@ -705,7 +711,6 @@ public class BeautyManager implements Beauty {
         mCosmeticProperty.lipStyle = style.mType;
         mCosmeticProperty.lipEnable = 1;
         updateCosmetic();
-
     }
 
     @Override
@@ -854,7 +859,6 @@ public class BeautyManager implements Beauty {
     @Override
     public void setFilterStrength(float strength) {
         mFilterProperty.strength = strength;
-        updateFilter();
     }
 
     @Override
@@ -1033,13 +1037,13 @@ public class BeautyManager implements Beauty {
 
 
     public void release(){
+        isReady = false;
         mRenderPipe.getRenderPool().runSync(new Runnable() {
             @Override
             public void run() {
-                mFP.clearFilters();
+//                mFP.clearFilters();
                 mFP.destroy();
             }
         });
-        isReady = false;
     }
 }

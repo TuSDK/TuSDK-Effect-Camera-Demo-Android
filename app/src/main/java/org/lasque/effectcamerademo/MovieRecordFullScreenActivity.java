@@ -8,6 +8,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
+import android.hardware.Camera;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -41,6 +42,8 @@ import org.lasque.effectcamerademo.utils.SensorHelper;
 import org.lasque.effectcamerademo.views.record.RecordView;
 import org.lasque.tubeautysetting.AudioConvert;
 import org.lasque.tubeautysetting.Beauty;
+import org.lasque.tubeautysetting.BeautyManager;
+import org.lasque.tubeautysetting.ImageConvert;
 import org.lasque.tubeautysetting.PipeMediator;
 import org.lasque.tubeautysetting.RecordManager;
 import org.lasque.tusdkpulse.core.TuSdkContext;
@@ -62,8 +65,10 @@ import org.lasque.tusdkpulse.cx.hardware.camera.impl.TuCameraImpl;
 import org.lasque.tusdkpulse.cx.hardware.utils.TuCameraAspectRatio;
 import org.lasque.tusdkpulse.cx.seles.extend.TuSurfaceTextureHolder;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Semaphore;
 
 import static android.os.Environment.DIRECTORY_DCIM;
 import static com.tusdk.pulse.filter.FileExporter.PITCH_TYPE_Normal;
@@ -80,7 +85,35 @@ import static org.lasque.tusdkpulse.core.utils.hardware.CameraConfigs.CameraStat
  * @Date 2021/1/20  14:51
  * @Copyright (c) 2020 tusdk.com. All rights reserved.
  */
-public class MovieRecordFullScreenActivity extends FragmentActivity {
+public class MovieRecordFullScreenActivity extends FragmentActivity implements Camera.PreviewCallback {
+
+    @Override
+    public void onPreviewFrame(byte[] data, Camera camera) {
+        TLog.e("onPreviewFrame");
+
+        if (mImageData == null || mImageData.length != mInputSize.width * mInputSize.height * 3 / 2){
+            mImageData = new byte[mInputSize.width * mInputSize.height * 3 / 2];
+        }
+
+        synchronized (mImageDataLock){
+            System.arraycopy(data,0,mImageData,0,data.length);
+        }
+//
+//        Image oriBuffer = new Image(data,mInputSize.width,mInputSize.height, Image.Format.NV21,System.currentTimeMillis());
+//
+//        ImageView testView = findViewById(R.id.lsq_camera_view_mask);
+//        testView.post(new Runnable() {
+//            @Override
+//            public void run() {
+//                testView.setImageBitmap(oriBuffer.toBitmap());
+//                oriBuffer.release();
+//            }
+//        });
+
+
+        mCameraHolder.onFrameAvailable(mSurfaceTexture);
+
+    }
 
     public class VideoFragmentItem{
         public String path;
@@ -93,7 +126,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
     private static int AUDIO_REQUEST_CODE = 4;
 
-    private static double PROCESS_WIDTH = 720;
+    private static double PROCESS_WIDTH = 1080;
 
     private static TuSdkSize PREVIEW_SIZE = new TuSdkSize(1920,1080);
 
@@ -123,6 +156,12 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
     private Bitmap mShotPhoto;
 
     private ImageView mVideoSelectView;
+
+    private byte[] mImageData;
+
+    private Object mImageDataLock = new Object();
+
+    private Semaphore mImageLock = new Semaphore(0);
 
 
     // ----------------------- 音频录制 ------------------------- //
@@ -483,10 +522,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
                 Manifest.permission.WRITE_EXTERNAL_STORAGE,
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.READ_PHONE_STATE,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.ACCESS_WIFI_STATE
         };
 
         return permissions;
@@ -517,21 +552,72 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         private long lastTime = 0;
         private long cameraLastTime = 0;
 
+        private ByteBuffer mNV21ImageData = null;
+
+        private long mNV21BufferSize = 0;
+
+        /**
+         * @param surfaceTexture
+         */
         @Override
         public void onFrameAvailable(SurfaceTexture surfaceTexture) {
+            if (true){
             if (!mPipeMediator.isReady()){
+
+                if (mCamera.getFacing() == CameraConfigs.CameraFacing.Front){
+                    mPipeMediator.setBufferOrientation(90);
+                    mPipeMediator.setIsBufferFlip(true);
+                } else {
+                    mPipeMediator.setBufferOrientation(270);
+                    mPipeMediator.setIsBufferFlip(false);
+                }
+
                 TuSdkSize size = ViewSize.create(mCameraView);
                 mCurrentRatio = TuCameraAspectRatio.of(size.width,size.height);
+                mPipeMediator.setRenderWidth((int) PROCESS_WIDTH);
                 if (mPipeMediator.requestInit(getBaseContext(),mCameraView,new SizeF(mCurrentRatio.getX(),mCurrentRatio.getY())).first){
                     mRecordView.initFilterPipe(mPipeMediator.getBeautyManager());
+
                     mCurrentRenderSize = TuSdkSize.create((int) PROCESS_WIDTH, (int) (PROCESS_WIDTH / mCurrentRatio.getX() * mCurrentRatio.getY()));
                 }
             }
             if (mPipeMediator.isReady()){
-                Image image = mPipeMediator.onFrameAvailable();
-                if (!isRecording){
-                    image.release();
+                TLog.e("onFrameAvailable --- 6");
+//                try {
+//                    mImageLock.acquire();
+//
+//                } catch (InterruptedException e) {
+//                    throw new RuntimeException(e);
+//                }
+
+                synchronized (mImageDataLock){
+
+
+                    if (mNV21ImageData == null || mNV21BufferSize != mImageData.length){
+                        mNV21ImageData = ByteBuffer.allocateDirect(mImageData.length);
+                        mNV21BufferSize = mImageData.length;
+                    }
+
+                    if (mImageData!= null && mNV21BufferSize >= mImageData.length){
+//                        System.arraycopy(mImageData,0,mNV21ImageData,0,mImageData.length);
+                        mNV21ImageData.position(0);
+                        mNV21ImageData.put(mImageData);
+                        mNV21ImageData.position(0);
+                    }
+
                 }
+                Image image = mPipeMediator.onFrameAvailable(mNV21ImageData,mInputSize.width,mInputSize.height,mInputSize.width);
+//                Image image = mPipeMediator.onFrameAvailable();
+                if (!isRecording && image!= null){
+//                    image.release();
+                }
+
+
+
+
+
+            }
+
             }
         }
     };
@@ -612,8 +698,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_new_record_full_screen);
-        Engine engine = Engine.getInstance();
-        engine.init(null);
+
         if (PermissionUtils.hasRequiredPermissions(this, getRequiredPermissions())){
             mSensorHelper = new SensorHelper(this);
             init();
@@ -830,6 +915,17 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
             public void changeRenderWidth(double width) {
                 mPipeMediator.setRenderWidth((int) width);
             }
+
+            @Override
+            public void changedCameraFacing(CameraConfigs.CameraFacing facing) {
+                if (mCamera.getFacing() == CameraConfigs.CameraFacing.Front){
+                    mPipeMediator.setBufferOrientation(90);
+                    mPipeMediator.setIsBufferFlip(true);
+                } else {
+                    mPipeMediator.setBufferOrientation(270);
+                    mPipeMediator.setIsBufferFlip(false);
+                }
+            }
         });
 
 
@@ -846,6 +942,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
         mCamera.setSurfaceHolder(mCameraHolder);
 
+        mCamera.setPreviewCallback(this);
+
         mCameraView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
@@ -859,7 +957,10 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 
         mCamera.setFullFrame(false);
 
+
+
         if (!mCamera.prepare()) return;
+
 
 
 
@@ -883,8 +984,6 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
 //        } else {
 //            mCamera.cameraOrient().setHorizontallyMirrorFrontFacingCamera(false);
 //        }
-
-
 
         mCamera.setCameraListener(new TuCamera.TuCameraListener() {
             @Override
@@ -941,6 +1040,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
         });
 
 
+
+
     }
 
     @Override
@@ -958,12 +1059,14 @@ public class MovieRecordFullScreenActivity extends FragmentActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        TLog.e("onDestroy --- 0");
         if (mAudioRecord != null) mAudioRecord.release();
+        TLog.e("onDestroy --- 1");
         if (mSensorHelper != null) mSensorHelper.release();
-
+        TLog.e("onDestroy --- 2");
         if (mPipeMediator != null) mPipeMediator.release();
+        TLog.e("onDestroy --- 3");
 
-        Engine.getInstance().release();
 
     }
 

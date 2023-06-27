@@ -60,7 +60,6 @@ public class DemoEntryActivity extends FragmentActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        Engine.getInstance().release();
     }
 
     /**

@@ -203,6 +203,8 @@ public class RecordView extends RelativeLayout {
         void updateMicState(boolean isOpen);
 
         void changeRenderWidth(double width);
+
+        void changedCameraFacing(CameraConfigs.CameraFacing facing);
     }
 
     public void setDelegate(TuSDKMovieRecordDelegate delegate) {
@@ -2491,7 +2493,7 @@ public class RecordView extends RelativeLayout {
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {
             file = AlbumHelper.getAlbumFileAndroidQ();
         } else {
-            file = AlbumHelper.getAlbumFile();
+            file = AlbumHelper.getAlbumFile(false);
         }
         ImageSqlHelper.saveJpgToAblum(mContext, mCaptureBitmap, 80, file, mCurrentResult.metadata);
         refreshFile(file);
@@ -2561,6 +2563,8 @@ public class RecordView extends RelativeLayout {
                     if (mCamera.getFacing() == CameraConfigs.CameraFacing.Front) {
                         mCamera.cameraFocus().setFocus(new PointF(0.5f, 0.5f), null);
                     }
+                    if (getDelegate() != null) getDelegate().changedCameraFacing(mCamera.getFacing());
+
                     break;
                 // 美颜按钮显示美颜布局
                 case R.id.lsq_beautyButton:

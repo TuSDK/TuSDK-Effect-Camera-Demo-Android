@@ -59,8 +59,8 @@ public class PreviewManager {
     }
 
     public void release(){
-        mDisplayView.release();
         mDisplayParent.removeView(mDisplayView);
+        mDisplayView.release();
     }
 
     /**

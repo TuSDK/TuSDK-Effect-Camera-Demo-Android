@@ -10,7 +10,14 @@ import com.tusdk.pulse.utils.gl.OutputSurface;
 
 import org.lasque.tubeautysetting.RenderPipe;
 import org.lasque.tusdkpulse.core.struct.TuSdkSize;
+import org.lasque.tusdkpulse.core.utils.TLog;
 import org.lasque.tusdkpulse.core.utils.image.ImageOrientation;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.stream.Collectors;
 
 /**
  * TuSDK
@@ -26,7 +33,7 @@ public class ImageConvert {
     /**
      * 获取处理画面必须的外部属性
      */
-    public static interface ProcessProperty{
+    public static interface ProcessProperty {
 
         /**
          * @return 当前设备角度
@@ -51,9 +58,14 @@ public class ImageConvert {
     private RenderPipe mRenderPipe;
 
     /**
+     * 裁剪渲染
+     */
+    private TextureRender mAspectRender;
+
+    /**
      * 渲染宽度,默认值为720
      */
-    private int mRenderWidth = 720;
+    private int mRenderWidth = 1080;
 
     /**
      * 实际渲染尺寸
@@ -63,7 +75,7 @@ public class ImageConvert {
     /**
      * 渲染比例
      */
-    private Pair<Double,Double> mAspect;
+    private Pair<Double, Double> mAspect;
 
     /**
      * 属性获取接口
@@ -75,6 +87,14 @@ public class ImageConvert {
      */
     private OutputSurface mSurface;
 
+
+
+    private int mBufferOrientation = 90;
+
+
+
+    private boolean mIsBufferFlip = true;
+
     private boolean isFirstInitTexture = true;
 
     /**
@@ -85,36 +105,40 @@ public class ImageConvert {
     /**
      * @param pipe 渲染管道
      */
-    public ImageConvert(RenderPipe pipe){
+    public ImageConvert(RenderPipe pipe) {
         mRenderPipe = pipe;
 
-        mRenderPipe.getRenderPool().runSync(new Runnable() {
-            @Override
-            public void run() {
-                mSurface = new OutputSurface();
-                mSurface.create(mRenderPipe.getContext());
-            }
-        });
+
+    }
+
+    public void setBufferOrientation(int mBufferOrientation) {
+        this.mBufferOrientation = mBufferOrientation;
+    }
+
+    public void setIsBufferFlip(boolean mIsBufferFlip) {
+        this.mIsBufferFlip = mIsBufferFlip;
     }
 
 
     /**
      * 设置图像输入尺寸
-     * @param width 宽
-     * @param height 高
+     *
+     * @param width             宽
+     * @param height            高
      * @param cameraOrientation 相机纹理获取方向
      */
-    public void setInputSize(int width,int height,ImageOrientation cameraOrientation){
-        mInputSize = TuSdkSize.create(width,height).transforOrientation(cameraOrientation);
+    public void setInputSize(int width, int height, ImageOrientation cameraOrientation) {
+        mInputSize = TuSdkSize.create(width, height).transforOrientation(cameraOrientation);
     }
 
     /**
      * 设置渲染宽度
+     *
      * @param renderWidth 渲染宽度
      */
-    public void setRenderWidth(int renderWidth){
+    public void setRenderWidth(int renderWidth) {
         mRenderWidth = renderWidth;
-        if (isReady){
+        if (isReady) {
             mRenderPipe.getRenderPool().runSync(new Runnable() {
                 @Override
                 public void run() {
@@ -127,24 +151,26 @@ public class ImageConvert {
 
     /**
      * 设置渲染纹理比例
+     *
      * @param w 宽
      * @param h 高
      * @return 是否成功
      */
-    public boolean setAspect(double w,double h){
+    public boolean setAspect(double w, double h) {
         if (mAspect != null) return false;
-        mAspect = new Pair<>(w,h);
+        mAspect = new Pair<>(w, h);
         return true;
     }
 
     /**
      * 更新渲染纹理比例
+     *
      * @param w 宽
      * @param h 高
      */
-    public void updateAspect(double w,double h){
+    public void updateAspect(double w, double h) {
         if (!isReady) return;
-        mAspect = new Pair<>(w,h);
+        mAspect = new Pair<>(w, h);
         mRenderPipe.getRenderPool().runSync(new Runnable() {
             @Override
             public void run() {
@@ -156,9 +182,10 @@ public class ImageConvert {
 
     /**
      * 设置外部属性获取接口
+     *
      * @param processProperty 外部属性接口 负责获取设备角度与是否需要高级人脸检测
      */
-    public void setProcessProperty(ProcessProperty processProperty){
+    public void setProcessProperty(ProcessProperty processProperty) {
         mProcessProperty = processProperty;
     }
 
@@ -172,19 +199,19 @@ public class ImageConvert {
      *
      * @return Manager 初始化结果
      */
-    public Pair<Boolean,Integer> requestInit(){
-        if (isReady) return new Pair<>(false,-1);
+    public Pair<Boolean, Integer> requestInit() {
+        if (isReady) return new Pair<>(false, -1);
         if (mRenderPipe == null) {
-            return new Pair<>(false,-2);
+            return new Pair<>(false, -2);
         }
-        if (mInputSize == null){
-            return new Pair<>(false,-3);
+        if (mInputSize == null) {
+            return new Pair<>(false, -3);
         }
-        if (mAspect == null){
-            return new Pair<>(false,-4);
+        if (mAspect == null) {
+            return new Pair<>(false, -4);
         }
-        if (mProcessProperty == null){
-            return new Pair<>(false,-5);
+        if (mProcessProperty == null) {
+            return new Pair<>(false, -5);
         }
 
         mRenderPipe.getRenderPool().runSync(new Runnable() {
@@ -192,49 +219,107 @@ public class ImageConvert {
             public void run() {
                 calcRenderSize();
                 prepareTexturePool();
+
+                mAspectRender = new TextureRender(false);
+                mAspectRender.create(mRealRenderSize.width,mRealRenderSize.height);
             }
         });
 
         isReady = true;
-        return new Pair<>(true,0);
+        return new Pair<>(true, 0);
     }
 
-    public boolean isReady(){
+    public boolean isReady() {
         return isReady;
     }
 
     /**
      * 相机纹理就绪通知
+     *
      * @return OES转Image对象
      */
-    public Image onFrameAvailable(){
+    @Deprecated
+    public Image onFrameAvailable() {
         if (!isReady) return null;
+        TLog.e("Image Convert onFrameAvailable() --- 0");
         final Image[] out = new Image[1];
         mRenderPipe.getRenderPool().runSync(new Runnable() {
             @Override
             public void run() {
+                TLog.e("Image Convert onFrameAvailable() --- 1");
                 out[0] = onDrawFrame();
+                TLog.e("Image Convert onFrameAvailable() --- 2");
             }
         });
+        return out[0];
+    }
+
+
+    /**
+     * @param buffer NV21数据
+     * @param bufferWidth NV21数据宽度
+     * @param bufferHeight NV21数据高度
+     * @param stride 每行数据长度
+     * @return
+     */
+    public Image onFrameAvailable(ByteBuffer buffer,int bufferWidth,int bufferHeight,int stride){
+        if (!isReady) return null;
+        TLog.e("Image Convert onFrameAvailable(byte[] buffer) --- 0");
+        final Image[] out = new Image[1];
+        mRenderPipe.getRenderPool().runSync(new Runnable() {
+            @Override
+            public void run() {
+                out[0] = onDrawFrame(buffer,bufferWidth,bufferHeight,stride);
+            }
+        });
+        return out[0];
+    }
+
+
+    public Image onAspectProcess(Image input){
+        if (!isReady) return null;
+        TLog.e("Image Convert onAspectDrawFrame() --- 0");
+        final Image[] out = new Image[1];
+        mRenderPipe.getRenderPool().runSync(new Runnable() {
+            @Override
+            public void run() {
+                out[0] = onAspectDrawFrame(input);
+            }
+        });
+
         return out[0];
     }
 
     /**
      * 释放
      */
-    public void release(){
+    public void release() {
         if (!isReady) return;
         mRenderPipe.getRenderPool().runSync(new Runnable() {
             @Override
             public void run() {
-                GLES20.glDeleteTextures(mTexCount,mTextures,0);
-                mProcessProperty = null;
-                isReady = false;
+                synchronized (ImageConvert.class) {
+
+                    int releaseSize = mNeedReleaseTextures.size();
+                    for (int i = 0; i < releaseSize; i++) {
+                        GLES20.glDeleteTextures(1, new int[]{mNeedReleaseTextures.get(i)}, 0);
+                    }
+                    mNeedReleaseTextures.clear();
+                    mSurface.release();
+
+                    GLES20.glDeleteTextures(mTexCount, mTextures, 0);
+
+
+                    mProcessProperty = null;
+                    isReady = false;
+                }
             }
         });
     }
 
-    /** Texture ID */
+    /**
+     * Texture ID
+     */
     private int mTexture = -1;
     /**
      * 纹理池数量
@@ -249,40 +334,79 @@ public class ImageConvert {
      */
     private int mTexIdx = 0;
 
+    private ArrayList<Integer> mNeedReleaseTextures = new ArrayList<>();
+
     /**
      * @return OES 转 Texture2D 纹理
      */
-    private Image onDrawFrame(){
-        mSurface.getSurfaceTexture().updateTexImage();
-        mTexture = mTextures[mTexIdx];
-        mTexIdx = (mTexIdx + 1) % mTexCount;
+    private Image onDrawFrame() {
+        synchronized (ImageConvert.class) {
+            mSurface.getSurfaceTexture().updateTexImage();
+            mTexture = mTextures[mTexIdx];
+            mTexIdx = (mTexIdx + 1) % mTexCount;
+            int drawRes = mSurface.drawImageTo(mTexture, mInputSize.width, mInputSize.height, mRealRenderSize.width, mRealRenderSize.height);
+            if (drawRes < 0) return null;
 
-        int drawRes = mSurface.drawImageTo(mTexture,mInputSize.width,mInputSize.height,mRealRenderSize.width,mRealRenderSize.height);
-        if (drawRes < 0) return null;
+            long inputPos = System.currentTimeMillis();
+            Image in = new Image(mTexture, mRealRenderSize.width, mRealRenderSize.height, inputPos);
+            in.setAgree(mProcessProperty.getAngle());
+//            in.setMarkSenceEnable(mProcessProperty.getEnableMarkSence());
+            in.setMarkSenceEnable(true);
+            in.setCustomThreadNum(2);
+            return in;
+        }
+    }
 
-        long inputPos = System.currentTimeMillis();
-        Image in = new Image(mTexture,mRealRenderSize.width,mRealRenderSize.height,inputPos);
+    /**
+     * @param buffer
+     * @return
+     */
+    private Image onDrawFrame(ByteBuffer buffer, int bufferWidth, int bufferHeight, int stride){
 
-        in.setAgree(mProcessProperty.getAngle());
-        in.setMarkSenceEnable(mProcessProperty.getEnableMarkSence());
+        synchronized (ImageConvert.class) {
+            mSurface.getSurfaceTexture().updateTexImage();
+            mTexture = mTextures[mTexIdx];
+            mTexIdx = (mTexIdx + 1) % mTexCount;
+            TLog.e("input size %d : %d render size %d : %d",mInputSize.width, mInputSize.height, mRealRenderSize.width, mRealRenderSize.height);
 
-        return in;
+            int drawRes = mSurface.drawImageTo(mTexture, mInputSize.width, mInputSize.height, mRealRenderSize.width, mRealRenderSize.height);
+//            int drawRes = mSurface.drawImageTo(mTexture, mInputSize.width, mInputSize.height, mInputSize.width, mInputSize.height);
+            if (drawRes < 0) return null;
+
+            long inputPos = System.currentTimeMillis();
+            Image in = new Image(mTexture,buffer, mRealRenderSize.width, mRealRenderSize.height,
+                    bufferWidth,bufferHeight,stride,mBufferOrientation ,inputPos,mIsBufferFlip,2);
+
+            in.setAgree(mProcessProperty.getAngle());
+            in.setMarkSenceEnable(mProcessProperty.getEnableMarkSence());
+//            in.setMarkSenceEnable(false);
+//            in.setCustomThreadNum(4);
+            return in;
+        }
+    }
+
+    private Image onAspectDrawFrame(Image input){
+        synchronized (ImageConvert.class){
+            mAspectRender.drawFrame(input.getGLTexture(),input.GetWidth(), input.GetHeight(),mRealRenderSize.width,mRealRenderSize.height);
+            Image output = new Image(mAspectRender.getTextureID(),mRealRenderSize.width,mRealRenderSize.height,System.currentTimeMillis());
+            return output;
+        }
 
     }
 
     /**
      * 计算实际渲染尺寸
      */
-    private void calcRenderSize(){
+    private void calcRenderSize() {
         int renderWidth = mRenderWidth;
         int renderHeight = (int) (mAspect.second * mRenderWidth / mAspect.first);
-        mRealRenderSize = TuSdkSize.create(renderWidth,renderHeight);
+        mRealRenderSize = TuSdkSize.create(renderWidth, renderHeight);
     }
 
     /**
      * 准备纹理池
      */
-    private void prepareTexturePool(){
+    private void prepareTexturePool() {
         int[] willDeleteTextures = mTextures.clone();
         GLES20.glGenTextures(mTexCount, mTextures, 0);
 
@@ -301,6 +425,7 @@ public class ImageConvert {
             GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D,
                     0,
                     GLES20.GL_RGBA,
+//                    mInputSize.width, mInputSize.height,
                     mRealRenderSize.width, mRealRenderSize.height,
                     0,
                     GLES20.GL_RGBA,
@@ -308,8 +433,10 @@ public class ImageConvert {
                     null);
 
         }
-        if (!isFirstInitTexture){
-//            GLES20.glDeleteTextures(mTexCount,willDeleteTextures,0);
+        if (!isFirstInitTexture) {
+            for (int i = 0; i < willDeleteTextures.length; i++) {
+                mNeedReleaseTextures.add(willDeleteTextures[i]);
+            }
         }
 
         isFirstInitTexture = false;
@@ -318,17 +445,23 @@ public class ImageConvert {
     /**
      * @return 获取供外部使用的SurfaceTexture对象 内部封装OES纹理
      */
-    public SurfaceTexture getSurfaceTexture(){
+    public SurfaceTexture getSurfaceTexture() {
+        mRenderPipe.getRenderPool().runSync(new Runnable() {
+            @Override
+            public void run() {
+                mSurface = new OutputSurface();
+                mSurface.create(mRenderPipe.getContext());
+            }
+        });
         return mSurface.getSurfaceTexture();
     }
 
     /**
      * @return 获取计算出来的实际渲染尺寸
      */
-    public TuSdkSize getRenderSize(){
+    public TuSdkSize getRenderSize() {
         return mRealRenderSize;
     }
-
 
 
 }
