@@ -86,15 +86,8 @@ public class ImageConvert {
      * SurfaceTexture 封装对象 持有OES纹理
      */
     private OutputSurface mSurface;
-
-
-
     private int mBufferOrientation = 90;
-
-
-
     private boolean mIsBufferFlip = true;
-
     private boolean isFirstInitTexture = true;
 
     /**
@@ -111,10 +104,16 @@ public class ImageConvert {
 
     }
 
+    /**
+     * @param mBufferOrientation
+     */
     public void setBufferOrientation(int mBufferOrientation) {
         this.mBufferOrientation = mBufferOrientation;
     }
 
+    /**
+     * @param mIsBufferFlip Buffer是否为翻转状态
+     */
     public void setIsBufferFlip(boolean mIsBufferFlip) {
         this.mIsBufferFlip = mIsBufferFlip;
     }
@@ -238,30 +237,19 @@ public class ImageConvert {
      *
      * @return OES转Image对象
      */
-    @Deprecated
     public Image onFrameAvailable() {
         if (!isReady) return null;
-        TLog.e("Image Convert onFrameAvailable() --- 0");
         final Image[] out = new Image[1];
         mRenderPipe.getRenderPool().runSync(new Runnable() {
             @Override
             public void run() {
-                TLog.e("Image Convert onFrameAvailable() --- 1");
                 out[0] = onDrawFrame();
-                TLog.e("Image Convert onFrameAvailable() --- 2");
             }
         });
         return out[0];
     }
 
 
-    /**
-     * @param buffer NV21数据
-     * @param bufferWidth NV21数据宽度
-     * @param bufferHeight NV21数据高度
-     * @param stride 每行数据长度
-     * @return
-     */
     public Image onFrameAvailable(ByteBuffer buffer,int bufferWidth,int bufferHeight,int stride){
         if (!isReady) return null;
         TLog.e("Image Convert onFrameAvailable(byte[] buffer) --- 0");

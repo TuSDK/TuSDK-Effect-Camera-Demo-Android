@@ -7,6 +7,7 @@ import android.graphics.SurfaceTexture;
 import android.opengl.GLES20;
 import android.service.dreams.DreamService;
 import android.text.TextUtils;
+import android.util.Size;
 import android.util.SizeF;
 import android.view.ViewGroup;
 
@@ -15,6 +16,9 @@ import androidx.core.util.Pair;
 
 import com.tusdk.pulse.filter.FilterDisplayView;
 import com.tusdk.pulse.filter.Image;
+import com.tusdk.pulse.filter.detector.DetectResult;
+import com.tusdk.pulse.filter.detector.Detector;
+import com.tusdk.pulse.filter.detector.DetectorBuffer;
 
 import org.lasque.tusdkpulse.core.struct.TuSdkSize;
 import org.lasque.tusdkpulse.core.utils.TLog;
@@ -55,7 +59,6 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
         mRenderPipe = new RenderPipe();
         mRenderPipe.initRenderPipe();
         mImageConvert = new ImageConvert(mRenderPipe);
-
     }
 
     /**
@@ -77,6 +80,9 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
      * 渲染宽度,默认值为720
      */
     private int mRenderWidth = 1080;
+
+    private int mBufferOrientation = 90;
+    private boolean mIsBufferFlip = true;
 
     /**
      * 渲染比例
@@ -107,6 +113,8 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
      * 预览渲染管理器
      */
     private PreviewManager mPreviewManager;
+
+    private Detector mDetector;
 
     private boolean isReady = false;
 
@@ -188,12 +196,18 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
         }
     }
 
+    /**
+     * @param orientation 设置Buffer旋转角度
+     */
     public void setBufferOrientation(int orientation){
-        mImageConvert.setBufferOrientation(orientation);
+        this.mBufferOrientation = mBufferOrientation;
     }
 
+    /**
+     * @param isFlip 设置Buffer是否为翻转状态
+     */
     public void setIsBufferFlip(boolean isFlip){
-        mImageConvert.setIsBufferFlip(isFlip);
+        this.mIsBufferFlip = mIsBufferFlip;
     }
 
     /**
@@ -235,6 +249,8 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
             mBeautyManager = new BeautyManager();
             mBeautyManager.requestInit(mRenderPipe);
 
+            mDetector = new Detector(Detector.DetectorType.BUFFER,mBeautyManager.getContext());
+
             mPreviewManager = new PreviewManager();
             result = mPreviewManager.requestInit(context, parent);
             if (!result.first) {
@@ -274,7 +290,6 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
     /**
      * SurfaceTexture 回调中调用此方法 通知管线进行渲染
      */
-    @Deprecated
     public Image onFrameAvailable() {
         if (!isReady) return null;
         synchronized (PipeMediator.class) {
@@ -309,13 +324,6 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
     private long frameImageConvertSum = 0;
     private long frameProcessSum = 0;
 
-    /**
-     * @param buffer NV21数据
-     * @param bufferWidth NV21数据宽度
-     * @param bufferHeight NV21数据高度
-     * @param stride 每行数据长度
-     * @return
-     */
     public Image onFrameAvailable(ByteBuffer buffer, int bufferWidth, int bufferHeight, int stride){
         if (!isReady) return null;
         synchronized (PipeMediator.class) {
@@ -326,22 +334,25 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
             TLog.e("Pipe image onFrameAvailable start");
 
             long convertStart = System.currentTimeMillis();
-            Image in = mImageConvert.onFrameAvailable(buffer,bufferWidth,bufferHeight,stride);
+            Image in = mImageConvert.onFrameAvailable();
             long convertOver = System.currentTimeMillis() - convertStart;
             frameImageConvertSum += convertOver;
             //2. 通过BeautyManager进行美颜处理
             TLog.e("Pipe image processFrame start");
 
+            Size textureSize = new Size(in.GetWidth(),in.GetHeight());
+            DetectorBuffer detectorBuffer = DetectorBuffer.makeFromBuffer(buffer,bufferWidth,bufferHeight,stride,
+                    textureSize,
+                    mBufferOrientation,mIsBufferFlip,4,
+                    System.currentTimeMillis());
+
+            DetectResult result = mDetector.detect(detectorBuffer);
+
             long processStart = System.currentTimeMillis();
-            Image out = mBeautyManager.processFrame(in);
+            Image out = mBeautyManager.processFrame(in,result);
             long processOver = System.currentTimeMillis() - processStart;
             frameProcessSum += processOver;
 //        Image out = in;
-
-            long aspectStart = System.currentTimeMillis();
-//            Image finalOut = mImageConvert.onAspectProcess(out);
-//            Image finalOut = out;
-            long aspectOver = System.currentTimeMillis() - aspectStart;
 
             //3. 将处理后的Image显示到View上
             TLog.e("Pipe image preview start");
@@ -356,11 +367,13 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
                 mRecordManager.sendImage(out, recordPos);
             }
             TLog.e("Pipe image release start");
-            long releaseStart = System.currentTimeMillis();
             in.release();
             out.release();
+
+            detectorBuffer.release();
+            result.release();
+
 //            finalOut.release();
-            long releaseOver = System.currentTimeMillis() - releaseStart;
 
             long renderOver = System.currentTimeMillis() - renderStart;
             frameDurationSum += renderOver;
@@ -651,10 +664,18 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
      * @return 处理后的图片
      */
     public Bitmap processBitmap(Bitmap input) {
+        Size textureSize = new Size(input.getWidth(),input.getHeight());
+        DetectorBuffer buffer = DetectorBuffer.makeFromBitmap(input,textureSize,0,false,System.currentTimeMillis());
+        DetectResult result = mDetector.detect(buffer);
+
         Image in = new Image(input, System.currentTimeMillis());
-        Image res = mBeautyManager.processFrame(in);
+        Image res = mBeautyManager.processFrame(in,result);
         Bitmap output = res.toBitmap();
         res.release();
+
+        buffer.release();
+        result.release();
+
         return output;
     }
 
@@ -681,6 +702,9 @@ public class PipeMediator implements ImageConvert.ProcessProperty {
 
             mRenderPipe.release();
             TLog.e("Pipe release -- 4");
+
+            mDetector.release();
+            mDetector = null;
 
             INSTANCE = null;
 

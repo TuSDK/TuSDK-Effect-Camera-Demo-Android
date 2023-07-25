@@ -5,8 +5,10 @@ import android.text.TextUtils;
 
 import com.tusdk.pulse.Config;
 import com.tusdk.pulse.filter.Filter;
+import com.tusdk.pulse.filter.FilterContext;
 import com.tusdk.pulse.filter.FilterPipe;
 import com.tusdk.pulse.filter.Image;
+import com.tusdk.pulse.filter.detector.DetectResult;
 import com.tusdk.pulse.filter.filters.SimultaneouslyFilter;
 import com.tusdk.pulse.filter.filters.TusdkBeautFaceV2Filter;
 import com.tusdk.pulse.filter.filters.TusdkCosmeticFilter;
@@ -114,13 +116,13 @@ public class BeautyManager implements Beauty {
      * @param in 输入纹理
      * @return 输出纹理
      */
-    public Image processFrame(final Image in){
+    public Image processFrame(final Image in, DetectResult detectResult){
         if (!isReady()) return null;
         final Image[] out = new Image[1];
         mRenderPipe.getRenderPool().runSync(new Runnable() {
             @Override
             public void run() {
-                out[0] = mFP.process(in);
+                out[0] = mFP.process(in,detectResult);
             }
         });
         return out[0];
@@ -1033,6 +1035,13 @@ public class BeautyManager implements Beauty {
     @Override
     public void setRenderSize(TuSdkSize size) {
         mRenderSize = size;
+    }
+
+    public FilterContext getContext(){
+        if (mFP != null){
+            return mFP.getContext();
+        }
+        return null;
     }
 
 

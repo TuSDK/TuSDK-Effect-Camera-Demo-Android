@@ -113,6 +113,8 @@ public class MovieRecordFullScreenActivity extends FragmentActivity implements C
 
         mCameraHolder.onFrameAvailable(mSurfaceTexture);
 
+
+
     }
 
     public class VideoFragmentItem{
@@ -606,6 +608,7 @@ public class MovieRecordFullScreenActivity extends FragmentActivity implements C
                     }
 
                 }
+
                 Image image = mPipeMediator.onFrameAvailable(mNV21ImageData,mInputSize.width,mInputSize.height,mInputSize.width);
 //                Image image = mPipeMediator.onFrameAvailable();
                 if (!isRecording && image!= null){
